@@ -6,7 +6,6 @@ import com.sksamuel.scrimage.nio.PngWriter
 import com.sksamuel.scrimage.filter.BufferedOpFilter
 import com.sksamuel.scrimage.pixels.Pixel
 
-
 object ImageProcessorModel {
 
   type PixelType = Seq[Int]
@@ -22,6 +21,11 @@ object ImageProcessorModel {
 
   def writeImage(image: MutableImage, file: String): Unit = {
     image.output(new PngWriter(), new File(file))
+  }
+
+  def writeImage(image: Array[Pixel], p: ImageProcessorParams, file: String): Unit = {
+    val imageObject = ImmutableImage.create(p.imageWidth, p.imageHeight, image)
+    imageObject.output(new PngWriter(), new File(file))
   }
 
   def getImageParams(image: ImmutableImage): ImageProcessorParams = {

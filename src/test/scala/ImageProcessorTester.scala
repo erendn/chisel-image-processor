@@ -1,11 +1,10 @@
 package chisel_image_processor
 
+import org.scalatest.flatspec.AnyFlatSpec
 import chisel3._
 import chiseltest._
 import com.sksamuel.scrimage.filter.EdgeFilter
-import org.scalatest.flatspec.AnyFlatSpec
-
-//import com.sksamuel.scrimage.scala._
+import com.sksamuel.scrimage.pixels.Pixel
 
 class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   behavior of "ImageProcessorModel"
@@ -19,15 +18,20 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
       ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_edge_model_output.png")
     }
 
-  def doTest(imageFile: String): Unit = {
-    val image = ImageProcessorModel.readImage(imageFile)
+  def doTest(inputFile: String, outputFile: String): Unit = {
+    // Prepare the input image
+    val image = ImageProcessorModel.readImage(inputFile)
+    val filteredImage = ImageProcessorModel.applyFilter(ImageProcessorModel.readImage(inputFile), new EdgeFilter())
     val p = ImageProcessorModel.getImageParams(image)
     val pixels = ImageProcessorModel.getImagePixels(image)
+    val filteredPixels = ImageProcessorModel.getImagePixels(filteredImage)
+    // Begin the test
     test(new ImageProcessor(p)).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
-      // load input matrices
+      // Load the image
       dut.io.in.valid.poke(true.B)
       dut.io.in.ready.expect(true.B)
-      // OK for dut.io.out.valid to be true with junk data
+      dut.io.state.expect(ImageProcessorState.idle)
+      // FIXME: Don't pass the entire image at once after streamlining
       for (r <- 0 until p.numRows) {
         for (c <- 0 until p.numCols) {
           for (i <- 0 until p.numChannels) {
@@ -36,11 +40,29 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
         }
       }
       dut.clock.step()
-      // check for completion & result
-      dut.io.in.ready.expect(true.B)
+      // Wait until the filter is applied
+      dut.io.in.ready.expect(false.B)
+      dut.io.out.valid.expect(false.B)
+      dut.clock.step((p.numRows - 2) * (p.numCols - 2))
+      // Check the output
+      dut.io.in.ready.expect(false.B)
       dut.io.out.valid.expect(true.B)
+      dut.io.state.expect(ImageProcessorState.done)
+      // Dump the output as an image file first for debug purposes
+      val outputPixels = Array.ofDim[Pixel](image.height * image.width)
       for (r <- 0 until p.numRows) {
         for (c <- 0 until p.numCols) {
+          outputPixels(r * p.imageWidth + c) = new Pixel(r, c, // x and y
+                                                         dut.io.out.bits(r)(c)(0).peek().litValue.toInt, // red
+                                                         dut.io.out.bits(r)(c)(1).peek().litValue.toInt, // green
+                                                         dut.io.out.bits(r)(c)(2).peek().litValue.toInt, // blue
+                                                         255) // alpha
+        }
+      }
+      ImageProcessorModel.writeImage(outputPixels, p, outputFile)
+      // Compare the output with the expected filtered image
+      for (r <- 1 until p.numRows - 1) {
+        for (c <- 1 until p.numCols - 1) {
           for (i <- 0 until p.numChannels) {
             dut.io.out.bits(r)(c)(i).expect(pixels(r)(c)(i).U)
           }
@@ -50,6 +72,6 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   }
   behavior of "ImageProcessor"
   it should "input and output" in {
-    doTest("./src/test/images/sample.png")
+    doTest("./src/test/images/sample.png", "./src/test/temp/sample_edge_output.png")
   }
 }
