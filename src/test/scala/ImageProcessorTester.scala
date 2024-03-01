@@ -3,25 +3,30 @@ package chisel_image_processor
 import org.scalatest.flatspec.AnyFlatSpec
 import chisel3._
 import chiseltest._
-import com.sksamuel.scrimage.filter.EdgeFilter
+import com.sksamuel.scrimage.filter.{BufferedOpFilter, BumpFilter, EdgeFilter}
 import com.sksamuel.scrimage.pixels.Pixel
 
 class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   behavior of "ImageProcessorModel"
-    it should "read/write image file" in {
-      val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
-      ImageProcessorModel.writeImage(image, "./src/test/temp/sample_model_output.png")
-    }
-    it should "apply filter" in {
-      val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
-      val filtered = ImageProcessorModel.applyFilter(image, new EdgeFilter())
-      ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_edge_model_output.png")
-    }
+  it should "read/write image file" in {
+    val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
+    ImageProcessorModel.writeImage(image, "./src/test/temp/sample_model_output.png")
+  }
+  it should "apply sobel filter" in {
+    val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
+    val filtered = ImageProcessorModel.applyFilter(image, new EdgeFilter())
+    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_sobel_model_output.png")
+  }
+  it should "apply bump filter" in {
+    val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
+    val filtered = ImageProcessorModel.applyFilter(image, new BumpFilter())
+    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_bump_model_output.png")
+  }
 
-  def doTest(filterFunc: ImageProcessorParams => FilterOperator, inputFile: String, outputFile: String): Unit = {
+  def doTest(filterFunc: ImageProcessorParams => FilterOperator, libFilter: BufferedOpFilter, inputFile: String, outputFile: String): Unit = {
     // Prepare the input image
     val image = ImageProcessorModel.readImage(inputFile)
-    val filteredImage = ImageProcessorModel.applyFilter(ImageProcessorModel.readImage(inputFile), new EdgeFilter())
+    val filteredImage = ImageProcessorModel.applyFilter(ImageProcessorModel.readImage(inputFile), libFilter)
     val p = ImageProcessorModel.getImageParams(image)
     val pixels = ImageProcessorModel.getImagePixels(image)
     val filteredPixels = ImageProcessorModel.getImagePixels(filteredImage)
@@ -66,7 +71,10 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
   behavior of "ImageProcessor"
-  it should "apply the Sobel filter" in {
-    doTest(FilterGenerators.sobelFilter, "./src/test/images/sample.png", "./src/test/temp/sample_edge_output.png")
+  it should "apply sobel filter" in {
+    doTest(FilterGenerators.sobelFilter, new EdgeFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_sobel_output.png")
+  }
+  it should "apply bump filter" in {
+    doTest(FilterGenerators.bumpFilter, new BumpFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_bump_output.png")
   }
 }
