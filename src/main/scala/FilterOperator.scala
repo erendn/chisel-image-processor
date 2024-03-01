@@ -4,35 +4,38 @@ import chisel3._
 import chisel3.util._
 
 // Parent class for all filter operators
-class FilterOperator(numRows: Int, numCols: Int) extends Module {
+class FilterOperator(p: ImageProcessorParams, numKernelRows: Int, numKernelCols: Int) extends CustomModule(p) {
+  val io = IO(new Bundle {
+    val in = Input(Vec(numKernelRows * numKernelCols, HWPixel())) // Input of 3x3 pixels
+    val out = Output(HWPixel()) // Output of the middle pixel
+  })
 }
 
-class SobelFilter extends FilterOperator(3, 3) {
-  val io = IO(new Bundle {
-    val in = Input(Vec(9, UInt(8.W))) // Input of 3x3 pixels
-    val out = Output(UInt(8.W)) // Output of the middle pixel
-  })
-
+class SobelFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
   // x and y gradients (11 bits because max value of gx_w and gy_w is 255*4 and last bit for sign)
-  val gx = Wire(SInt(11.W))
-  val gy = Wire(SInt(11.W))
+  val gx = Wire(Vec(p.numChannels, SInt(11.W)))
+  val gy = Wire(Vec(p.numChannels, SInt(11.W)))
   // Absolute x and y gradients
-  val abs_gx = Wire(SInt(11.W))
-  val abs_gy = Wire(SInt(11.W))
-  val sum = Wire(SInt(11.W))
+  val abs_gx = Wire(Vec(p.numChannels, SInt(11.W)))
+  val abs_gy = Wire(Vec(p.numChannels, SInt(11.W)))
+  val sum = Wire(Vec(p.numChannels, SInt(11.W)))
 
-  // Horizontal mask
-  gx := ((io.in(2).asSInt - io.in(0).asSInt) + ((io.in(5).asSInt - io.in(3).asSInt) * 2.U) + (io.in(8).asSInt - io.in(6).asSInt))
-  // Vertical mask
-  gy := ((io.in(0).asSInt - io.in(6).asSInt) + ((io.in(1).asSInt - io.in(7).asSInt) * 2.U) + (io.in(2).asSInt - io.in(8).asSInt))
-
-  // Absolute values of both axes
-  abs_gx := gx.abs
-  abs_gy := gy.abs
-
-  // Add both axes to find the combined value
-  sum := abs_gx + abs_gy
-
-  // Limit the max value to 255
-  io.out := Mux(sum(10, 8).orR, "hff".U, sum(7, 0))
+  // Apply the filter separately for each channel
+  for (i <- 0 until p.numChannels) {
+    // Horizontal mask
+    gx(i) := ((io.in(2)(i).zext -& io.in(0)(i).zext) +&
+              (io.in(5)(i).zext -& io.in(3)(i).zext).do_<<(1) +&
+              (io.in(8)(i).zext -& io.in(6)(i).zext))
+    // Vertical mask
+    gy(i) := ((io.in(0)(i).zext -& io.in(6)(i).zext) +&
+              (io.in(1)(i).zext -& io.in(7)(i).zext).do_<<(1) +&
+              (io.in(2)(i).zext -& io.in(8)(i).zext))
+    // Absolute values of both axes
+    abs_gx(i) := gx(i).abs
+    abs_gy(i) := gy(i).abs
+    // Add both axes to find the combined value
+    sum(i) := abs_gx(i) + abs_gy(i)
+    // Limit the max value to 255
+    io.out(i) := Mux(sum(i)(10, 8).orR, 255.U, sum(i)(7, 0))
+  }
 }
