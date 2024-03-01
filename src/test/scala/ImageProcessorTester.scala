@@ -18,7 +18,7 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
       ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_edge_model_output.png")
     }
 
-  def doTest(inputFile: String, outputFile: String): Unit = {
+  def doTest(filterFunc: ImageProcessorParams => FilterOperator, inputFile: String, outputFile: String): Unit = {
     // Prepare the input image
     val image = ImageProcessorModel.readImage(inputFile)
     val filteredImage = ImageProcessorModel.applyFilter(ImageProcessorModel.readImage(inputFile), new EdgeFilter())
@@ -26,7 +26,7 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     val pixels = ImageProcessorModel.getImagePixels(image)
     val filteredPixels = ImageProcessorModel.getImagePixels(filteredImage)
     // Begin the test
-    test(new ImageProcessor(p)).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
+    test(new ImageProcessor(p, filterFunc)).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
       val outputPixels = Array.ofDim[Pixel](image.height * image.width)
       dut.clock.setTimeout(image.height * image.width * 2)
       // Load the image
@@ -66,7 +66,7 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
   behavior of "ImageProcessor"
-  it should "input and output" in {
-    doTest("./src/test/images/sample.png", "./src/test/temp/sample_edge_output.png")
+  it should "apply the Sobel filter" in {
+    doTest(FilterGenerators.sobelFilter, "./src/test/images/sample.png", "./src/test/temp/sample_edge_output.png")
   }
 }

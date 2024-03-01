@@ -3,12 +3,19 @@ package chisel_image_processor
 import chisel3._
 import chisel3.util._
 
-// Parent class for all filter operators
-class FilterOperator(p: ImageProcessorParams, numKernelRows: Int, numKernelCols: Int) extends CustomModule(p) {
+// Parent class for all filter operators. Each child class must have a corresponding generator function in the
+// FilterGenerators object to be passed to the ImageProcessor class instance.
+abstract class FilterOperator(p: ImageProcessorParams, numKernelRows: Int, numKernelCols: Int) extends CustomModule(p) {
   val io = IO(new Bundle {
     val in = Input(Vec(numKernelRows * numKernelCols, HWPixel())) // Input of 3x3 pixels
     val out = Output(HWPixel()) // Output of the middle pixel
   })
+}
+
+object FilterGenerators {
+  def sobelFilter(p: ImageProcessorParams): FilterOperator = {
+    new SobelFilter(p)
+  }
 }
 
 class SobelFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {

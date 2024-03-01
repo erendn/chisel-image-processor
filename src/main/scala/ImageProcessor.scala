@@ -17,7 +17,7 @@ object ImageProcessorState extends ChiselEnum {
   val idle, fillingTopRow, fillingMidRow, processing, done = Value
 }
 
-class ImageProcessor(p: ImageProcessorParams) extends CustomModule(p) {
+class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams => FilterOperator) extends CustomModule(p) {
   val io = IO(new Bundle {
     // Input interface
     val in = Flipped(Decoupled(new Bundle {
@@ -59,8 +59,7 @@ class ImageProcessor(p: ImageProcessorParams) extends CustomModule(p) {
   val pixelMatrix = Reg(Vec(p.numChannels, Vec(p.numChannels - 1, HWPixel())))
 
   // Instantiate an operator for each channel
-  // TODO: Move out of this class
-  val filterOperator = Module(new SobelFilter(p))
+  val filterOperator = Module(filterFunc(p))
   for (i <- 0 until 9) {
     filterOperator.io.in(i) := emptyPixel
   }
