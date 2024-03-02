@@ -10,7 +10,7 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   behavior of "ImageProcessorModel"
   it should "read/write image file" in {
     println(System.getProperty("user.dir"))
-    val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
+    val image = ImageProcessorModel.readImage(System.getProperty("user.dir") + "/src/test/images/sample.png")
     ImageProcessorModel.writeImage(image, "./src/test/temp/sample_model_output.png")
   }
   it should "apply sobel filter" in {
