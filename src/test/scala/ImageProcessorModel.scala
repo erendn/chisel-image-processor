@@ -20,12 +20,14 @@ object ImageProcessorModel {
   }
 
   def writeImage(image: MutableImage, file: String): Unit = {
-    image.output(new PngWriter(), new File(file))
+    val outputFile = new File(file)
+    outputFile.getParentFile().mkdirs() // Create parent directories
+    image.output(new PngWriter(), outputFile)
   }
 
   def writeImage(image: Array[Pixel], p: ImageProcessorParams, file: String): Unit = {
     val imageObject = ImmutableImage.create(p.imageWidth, p.imageHeight, image)
-    imageObject.output(new PngWriter(), new File(file))
+    this.writeImage(imageObject, file)
   }
 
   def getImageParams(image: ImmutableImage): ImageProcessorParams = {
