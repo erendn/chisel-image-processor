@@ -37,19 +37,31 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
   // Internal state register
   val stateReg = RegInit(ImageProcessorState.idle)
 
+  // Row buffer functions
+  def buffer_init(buffer: RowBufferMemory): Unit = {
+    buffer.io.rEn := false.B
+    buffer.io.rAddr := 0.U
+    buffer.io.wEn := false.B
+    buffer.io.wAddr := 0.U
+    buffer.io.wData := emptyPixel
+  }
+
+  def buffer_write(buffer: RowBufferMemory, addr: UInt, data: Vec[UInt]): Unit = {
+    buffer.io.wEn := true.B
+    buffer.io.wAddr := addr
+    buffer.io.wData := data
+  }
+
+  def buffer_read(buffer: RowBufferMemory, addr: UInt): Unit = {
+    buffer.io.rEn := true.B
+    buffer.io.rAddr := addr
+  }
+
   // Row buffers
   val topRowBuffer = Module(new RowBufferMemory(p))
-  topRowBuffer.io.rEn := false.B
-  topRowBuffer.io.rAddr := 0.U
-  topRowBuffer.io.wEn := false.B
-  topRowBuffer.io.wAddr := 0.U
-  topRowBuffer.io.wData := emptyPixel
+  buffer_init(topRowBuffer)
   val midRowBuffer = Module(new RowBufferMemory(p))
-  midRowBuffer.io.rEn := false.B
-  midRowBuffer.io.rAddr := 0.U
-  midRowBuffer.io.wEn := false.B
-  midRowBuffer.io.wAddr := 0.U
-  midRowBuffer.io.wData := emptyPixel
+  buffer_init(midRowBuffer)
   // Row and column pointers for processing
   val currentRow = RegInit(0.U(log2Ceil(p.numRows).W))
   val currentCol = RegInit(0.U(log2Ceil(p.numCols).W))
@@ -105,9 +117,7 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
       assert(io.in.bits.row === currentRow)
       assert(io.in.bits.col === currentCol)
       // Write to the top row buffer
-      topRowBuffer.io.wEn := true.B
-      topRowBuffer.io.wAddr := currentCol
-      topRowBuffer.io.wData := io.in.bits.data
+      buffer_write(topRowBuffer, currentCol, io.in.bits.data)
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
       // Switch to the next row buffer when reached the end
@@ -124,19 +134,15 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
       assert(io.in.bits.row === currentRow)
       assert(io.in.bits.col === currentCol)
       // Write to the top row buffer
-      midRowBuffer.io.wEn := true.B
-      midRowBuffer.io.wAddr := currentCol
-      midRowBuffer.io.wData := io.in.bits.data
+      buffer_write(midRowBuffer, currentCol, io.in.bits.data)
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
       // Switch to the filtering state when reached the end
       when (currentCol === (p.numCols - 1).U) {
         stateReg := ImageProcessorState.processing
         // Read initial pixels from buffers
-        topRowBuffer.io.rEn := true.B
-        topRowBuffer.io.rAddr := 0.U
-        midRowBuffer.io.rEn := true.B
-        midRowBuffer.io.rAddr := 0.U
+        buffer_read(topRowBuffer, 0.U)
+        buffer_read(midRowBuffer, 0.U)
       }
     }
     // PROCESSING:
@@ -152,13 +158,11 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
       // Read next pixels from buffers
-      topRowBuffer.io.rEn := true.B
-      topRowBuffer.io.rAddr := currentCol + 1.U
-      midRowBuffer.io.rEn := true.B
-      midRowBuffer.io.rAddr := currentCol + 1.U
+      buffer_read(topRowBuffer, currentCol + 1.U)
+      buffer_read(midRowBuffer, currentCol + 1.U)
       when (currentCol === (p.numCols - 1).U) {
-        topRowBuffer.io.rAddr := 0.U
-        midRowBuffer.io.rAddr := 0.U
+        buffer_read(topRowBuffer, 0.U)
+        buffer_read(midRowBuffer, 0.U)
       }
       // Update pixel matrix for the next cycle
       // | a | d |   | h |    | d | h |
@@ -167,30 +171,25 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
       // h: Output of top row buffer
       // i: Output of mid row buffer
       // j: Input pixel
-      pixelMatrix(0)(0) := pixelMatrix(0)(1)
-      pixelMatrix(1)(0) := pixelMatrix(1)(1)
-      pixelMatrix(2)(0) := pixelMatrix(2)(1)
+      for (n <- 0 until 3) {
+        pixelMatrix(n)(0) := pixelMatrix(n)(1)
+      }
       pixelMatrix(0)(1) := topRowBuffer.io.rData
       pixelMatrix(1)(1) := midRowBuffer.io.rData
       pixelMatrix(2)(1) := io.in.bits.data
       // Update buffers
-      topRowBuffer.io.wEn := true.B
-      topRowBuffer.io.wAddr := currentCol
-      topRowBuffer.io.wData := midRowBuffer.io.rData // Shift mid to top
-      midRowBuffer.io.wEn := true.B
-      midRowBuffer.io.wAddr := currentCol
-      midRowBuffer.io.wData := io.in.bits.data // Put new pixel to mid
+      buffer_write(topRowBuffer, currentCol, midRowBuffer.io.rData) // Shift mid to top
+      buffer_write(midRowBuffer, currentCol, io.in.bits.data) // Put new pixel to mid
       // If first two pixels in the row, we will just read buffers and take the input (no output)
       when (currentCol > 1.U) {
         // Apply filter for (currentRow-1,currentCol-1)
-        filterOperator.io.in(0) := pixelMatrix(0)(0)
-        filterOperator.io.in(1) := pixelMatrix(0)(1)
+        for (n <- 0 until 3; m <- 0 until 3) {
+          if (m != 2) {
+            filterOperator.io.in(n*3) := pixelMatrix(n)(m)
+          }
+        }
         filterOperator.io.in(2) := topRowBuffer.io.rData
-        filterOperator.io.in(3) := pixelMatrix(1)(0)
-        filterOperator.io.in(4) := pixelMatrix(1)(1)
         filterOperator.io.in(5) := midRowBuffer.io.rData
-        filterOperator.io.in(6) := pixelMatrix(2)(0)
-        filterOperator.io.in(7) := pixelMatrix(2)(1)
         filterOperator.io.in(8) := io.in.bits.data
         // Output the processed pixel
         io.out.bits.data := filterOperator.io.out
