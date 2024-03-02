@@ -9,6 +9,7 @@ import com.sksamuel.scrimage.pixels.Pixel
 class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   behavior of "ImageProcessorModel"
   it should "read/write image file" in {
+    println(System.getProperty("user.dir"))
     val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
     ImageProcessorModel.writeImage(image, "./src/test/temp/sample_model_output.png")
   }
