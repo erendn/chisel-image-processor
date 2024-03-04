@@ -3,7 +3,7 @@ package chisel_image_processor
 import org.scalatest.flatspec.AnyFlatSpec
 import chisel3._
 import chiseltest._
-import com.sksamuel.scrimage.filter.{BlurFilter, BumpFilter, EdgeFilter, Filter, GrayscaleFilter}
+import com.sksamuel.scrimage.filter.{BlurFilter, BumpFilter, Filter, GrayscaleFilter, SolarizeFilter}
 import com.sksamuel.scrimage.pixels.Pixel
 
 class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
@@ -26,6 +26,11 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
     val filtered = ImageProcessorModel.applyFilter(image, new GrayscaleFilter())
     ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_grayscale_model_output.png")
+  }
+  it should "apply solarize filter" in {
+    val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
+    val filtered = ImageProcessorModel.applyFilter(image, new SolarizeFilter())
+    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_solarize_model_output.png")
   }
 
   def assertWithTolerance(actual: Int, expected: Int): Unit = {
@@ -99,5 +104,8 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   }
   it should "apply grayscale filter" in {
     doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_grayscale_output.png")
+  }
+  it should "apply solarize filter" in {
+    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_solarize_output.png")
   }
 }
