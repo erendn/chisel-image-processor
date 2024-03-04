@@ -28,6 +28,10 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_grayscale_model_output.png")
   }
 
+  def assertWithTolerance(actual: Int, expected: Int): Unit = {
+    val diff = (expected - actual).abs
+    assert(diff < 2)
+  }
   def doTest(filterName: String, libFilter: Filter, inputFile: String, outputFile: String): Unit = {
     // Prepare the input image
     val image = ImageProcessorModel.readImage(inputFile)
@@ -72,6 +76,18 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
         }
       }
       ImageProcessorModel.writeImage(outputPixels, p, outputFile)
+      // Compare all pixels to the library's results
+      // FIXME: Actually compare all pixels after solving the edge issue
+      for (r <- 1 until p.numRows - 1) {
+        for (c <- 1 until p.numCols - 1) {
+          val index = r * p.numCols + c
+          assert(c == outputPixels(index).x)
+          assert(r == outputPixels(index).y)
+          assertWithTolerance(outputPixels(index).red(), filteredPixels(r)(c)(0))
+          assertWithTolerance(outputPixels(index).green(), filteredPixels(r)(c)(1))
+          assertWithTolerance(outputPixels(index).blue(), filteredPixels(r)(c)(2))
+        }
+      }
     }
   }
   behavior of "ImageProcessor"
