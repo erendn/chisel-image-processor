@@ -4,21 +4,21 @@ import chisel3._
 import chisel3.util._
 
 object FilterGenerator {
-  val sobelFilter = "sobel"
   val bumpFilter = "bump"
+  val blurFilter = "blur"
   val grayscaleFilter = "gray"
   def get(p: ImageProcessorParams, name: String): FilterOperator = {
-    if (name == sobelFilter) {
-      return new HWSobelFilter(p)
-    } else if (name == bumpFilter) {
+    if (name == bumpFilter) {
       return new HWBumpFilter(p)
+    }else if (name == blurFilter) {
+      return new HWBlurFilter(p)
     } else if (name == grayscaleFilter) {
       return new HWGrayscaleFilter(p)
     }
     return null
   }
   def isKernelFilter(name: String): Boolean = {
-    return Vector(sobelFilter, bumpFilter).contains(name)
+    return Vector(bumpFilter, blurFilter).contains(name)
   }
 }
 
@@ -36,41 +36,6 @@ abstract class FilterOperator(p: ImageProcessorParams, rows: Int, cols: Int) ext
 
 }
 
-class HWSobelFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
-  // x and y gradients (11 bits because max value of gx_w and gy_w is 255*4 and last bit for sign)
-  val gx = Wire(Vec(p.numChannels, SInt(11.W)))
-  val gy = Wire(Vec(p.numChannels, SInt(11.W)))
-  // Absolute x and y gradients
-  val abs_gx = Wire(Vec(p.numChannels, SInt(11.W)))
-  val abs_gy = Wire(Vec(p.numChannels, SInt(11.W)))
-  val sum = Wire(Vec(p.numChannels, SInt(11.W)))
-
-  // Apply the filter separately for each channel
-  for (i <- 0 until p.numChannels) {
-    // Horizontal mask
-    // [  1,  0, -1 ]
-    // [  2,  0, -2 ]
-    // [  1,  0, -1 ]
-    gx(i) := ((io.in(2)(i).zext -& io.in(0)(i).zext) +&
-              (io.in(5)(i).zext -& io.in(3)(i).zext).do_<<(1) +&
-              (io.in(8)(i).zext -& io.in(6)(i).zext))
-    // Vertical mask
-    // [  1,  2,  1 ]
-    // [  0,  0,  0 ]
-    // [ -1, -2, -1 ]
-    gy(i) := ((io.in(0)(i).zext -& io.in(6)(i).zext) +&
-              (io.in(1)(i).zext -& io.in(7)(i).zext).do_<<(1) +&
-              (io.in(2)(i).zext -& io.in(8)(i).zext))
-    // Absolute values of both axes
-    abs_gx(i) := gx(i).abs
-    abs_gy(i) := gy(i).abs
-    // Add both axes to find the combined value
-    sum(i) := abs_gx(i) + abs_gy(i)
-    // Limit the max value to 255
-    io.out(i) := Mux(sum(i)(10, 8).orR, 255.U, sum(i)(7, 0))
-  }
-}
-
 class HWBumpFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
   // Sum can be 255*4 at maximum; therefore, it must be signed 11 bits
   val sum = Wire(Vec(p.numChannels, SInt(11.W)))
@@ -85,6 +50,35 @@ class HWBumpFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
               io.in(0)(i).zext -& io.in(1)(i).zext -& io.in(3)(i).zext
     // Clamp negative to 0, overflow to 255
     io.out(i) := Mux(sum(i)(10), 0.U, Mux(sum(i)(9, 8).orR, 255.U, sum(i)(7, 0)))
+  }
+}
+
+class HWBlurFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
+  // Scaled gradient can be 255*2 at maximum; therefore, it must be 9 bits
+  val gScale = Wire(Vec(numPixels, Vec(p.numChannels, UInt(9.W))))
+  // Gradient can be 255 at maximum; therefore, it must be 8 bits
+  val g = Wire(Vec(numPixels, Vec(p.numChannels, UInt(8.W))))
+
+  for (i <- 0 until p.numChannels) {
+    // Kernel is:
+    // [ 1/14, 2/14, 1/14 ]
+    // [ 2/14, 2/14, 2/14 ]
+    // [ 1/14, 2/14, 1/14 ]
+    gScale(0)(i) := io.in(0)(i)
+    gScale(1)(i) := io.in(1)(i) * 2.U
+    gScale(2)(i) := io.in(2)(i)
+    gScale(3)(i) := io.in(3)(i) * 2.U
+    gScale(4)(i) := io.in(4)(i) * 2.U
+    gScale(5)(i) := io.in(5)(i) * 2.U
+    gScale(6)(i) := io.in(6)(i)
+    gScale(7)(i) := io.in(7)(i) * 2.U
+    gScale(8)(i) := io.in(8)(i)
+    for (j <- 0 until 9) {
+      g(j)(i) := gScale(j)(i) / 14.U
+    }
+    io.out(i) := g(0)(i) + g(1)(i) + g(2)(i) +
+                 g(3)(i) + g(4)(i) + g(5)(i) +
+                 g(6)(i) + g(7)(i) + g(8)(i)
   }
 }
 
