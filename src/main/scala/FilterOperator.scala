@@ -46,7 +46,6 @@ class HWSobelFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
   // Apply the filter separately for each channel
   for (i <- 0 until p.numChannels) {
     // Horizontal mask
-    // Kernel is:
     // [  1,  0, -1 ]
     // [  2,  0, -2 ]
     // [  1,  0, -1 ]
@@ -88,6 +87,7 @@ class HWBumpFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
 }
 
 class HWGrayscaleFilter(p: ImageProcessorParams) extends FilterOperator(p, 1, 1) {
+  // gray = (red * 0.21) + (green * 0.71) + (blue * 0.07)
   val rScale = io.in(0)(0) * 21.U
   val gScale = io.in(0)(1) * 71.U
   val bScale = io.in(0)(2) * 7.U

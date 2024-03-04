@@ -3,6 +3,7 @@ package chisel_image_processor
 import chisel3._
 import chisel3.util._
 
+// Generator function to return the proper image processor instance for the given filter
 object ImageProcessorGenerator {
   def get(p: ImageProcessorParams, filterName: String): ImageProcessor = {
     if (FilterGenerator.isKernelFilter(filterName)) {
@@ -77,7 +78,7 @@ class BasicImageProcessor(p: ImageProcessorParams, filterName: String) extends I
   switch (stateReg) {
     // READY:
     //   This state is supposed to wait until a high "input valid" signal is received. Then, it switches to the
-    // FILLING TOP ROW state. It doesn't expect any pixel input in this cycle.
+    // PROCESSING state.
     is(ImageProcessorState.idle) {
       io.in.ready := true.B
       // Wait until input is being sent
@@ -92,8 +93,7 @@ class BasicImageProcessor(p: ImageProcessorParams, filterName: String) extends I
     //   This state is supposed to apply the filter on the image while keeping taking an input pixel every cycle until
     // the entire image is taken. It assumes pixels will be given in row-major order and there will be a new pixel every
     // cycle. It doesn't check "input valid" signal. Every cycle, the filter will be applied for the
-    // (currentRow-1, currentCol-1) pixel. When it reaches the end of the last row, it switches to the DONE state.
-    // WARNING: The image processor doesn't apply the filter for edge pixels since every filter handles them differently.
+    // (currentRow, currentCol) pixel. When it reaches the end of the last row, it switches to the DONE state.
     is (ImageProcessorState.processing) {
       // Check if the input is in the correct order
       assert(io.in.bits.row === currentRow)
