@@ -3,7 +3,7 @@ package chisel_image_processor
 import java.io.File
 import com.sksamuel.scrimage.{ImmutableImage, MutableImage}
 import com.sksamuel.scrimage.nio.PngWriter
-import com.sksamuel.scrimage.filter.BufferedOpFilter
+import com.sksamuel.scrimage.filter.Filter
 import com.sksamuel.scrimage.pixels.Pixel
 
 object ImageProcessorModel {
@@ -15,7 +15,7 @@ object ImageProcessorModel {
     ImmutableImage.loader().fromFile(file)
   }
 
-  def applyFilter(image: ImmutableImage, filter: BufferedOpFilter): ImmutableImage = {
+  def applyFilter(image: ImmutableImage, filter: Filter): ImmutableImage = {
     image.filter(filter)
   }
 

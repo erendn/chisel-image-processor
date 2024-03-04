@@ -3,8 +3,27 @@ package chisel_image_processor
 import chisel3._
 import chisel3.util._
 
-// Parent class for all filter operators. Each child class must have a corresponding generator function in the
-// FilterGenerators object to be passed to the ImageProcessor class instance.
+object FilterGenerator {
+  val sobelFilter = "sobel"
+  val bumpFilter = "bump"
+  val grayscaleFilter = "gray"
+  def get(p: ImageProcessorParams, name: String): FilterOperator = {
+    if (name == sobelFilter) {
+      return new HWSobelFilter(p)
+    } else if (name == bumpFilter) {
+      return new HWBumpFilter(p)
+    } else if (name == grayscaleFilter) {
+      return new HWGrayscaleFilter(p)
+    }
+    return null
+  }
+  def isKernelFilter(name: String): Boolean = {
+    return Vector(sobelFilter, bumpFilter).contains(name)
+  }
+}
+
+// Parent class for all filter operators. Each child class must have a corresponding entry in the generator function in
+// the FilterGenerators object to be used in the ImageProcessor class instance.
 abstract class FilterOperator(p: ImageProcessorParams, rows: Int, cols: Int) extends CustomModule(p) {
   val io = IO(new Bundle {
     val in = Input(Vec(rows * cols, HWPixel())) // Input of 3x3 pixels
@@ -12,15 +31,7 @@ abstract class FilterOperator(p: ImageProcessorParams, rows: Int, cols: Int) ext
   })
   val numKernelRows: Int = rows
   val numKernelCols: Int = cols
-}
-
-object FilterGenerators {
-  def sobelFilter(p: ImageProcessorParams): FilterOperator = {
-    new HWSobelFilter(p)
-  }
-  def bumpFilter(p: ImageProcessorParams): FilterOperator = {
-    new HWBumpFilter(p)
-  }
+  val isKernelFilter: Boolean = rows > 1 || cols > 1
 }
 
 class HWSobelFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
@@ -74,4 +85,14 @@ class HWBumpFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
     // Clamp negative to 0, overflow to 255
     io.out(i) := Mux(sum(i)(10), 0.U, Mux(sum(i)(9, 8).orR, 255.U, sum(i)(7, 0)))
   }
+}
+
+class HWGrayscaleFilter(p: ImageProcessorParams) extends FilterOperator(p, 1, 1) {
+  val rScale = io.in(0)(0) * 21.U
+  val gScale = io.in(0)(1) * 71.U
+  val bScale = io.in(0)(2) * 7.U
+  val sum = (rScale +& gScale +& bScale) / 100.U
+  io.out(0) := sum
+  io.out(1) := sum
+  io.out(2) := sum
 }

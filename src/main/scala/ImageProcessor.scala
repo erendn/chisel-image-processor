@@ -3,6 +3,15 @@ package chisel_image_processor
 import chisel3._
 import chisel3.util._
 
+object ImageProcessorGenerator {
+  def get(p: ImageProcessorParams, filterName: String): ImageProcessor = {
+    if (FilterGenerator.isKernelFilter(filterName)) {
+      return new KernelImageProcessor(p, filterName)
+    }
+    return new BasicImageProcessor(p, filterName)
+  }
+}
+
 case class ImageProcessorParams(imageWidth: Int, imageHeight: Int) {
   // Image size must be non-negative
   require(imageWidth > 0)
@@ -17,7 +26,7 @@ object ImageProcessorState extends ChiselEnum {
   val idle, fillingTopRow, fillingMidRow, processing, done = Value
 }
 
-class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams => FilterOperator) extends CustomModule(p) {
+abstract class ImageProcessor(p: ImageProcessorParams, filterName: String) extends CustomModule(p) {
   val io = IO(new Bundle {
     // Input interface
     val in = Flipped(Decoupled(new Bundle {
@@ -39,15 +48,85 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
   // Row and column pointers for processing
   val currentRow = RegInit(0.U(log2Ceil(p.numRows).W))
   val currentCol = RegInit(0.U(log2Ceil(p.numCols).W))
-  // Pixel matrix to apply the filter kernel on
-  // Only has the first two columns because the last column is received by the buffers and the input
-  val pixelMatrix = Reg(Vec(p.numChannels, Vec(p.numChannels - 1, HWPixel())))
   // Instantiate the filter operator
-  val filterOperator = Module(filterFunc(p))
+  val filterOperator = Module(FilterGenerator.get(p, filterName))
   for (i <- 0 until filterOperator.numKernelRows * filterOperator.numKernelCols) {
     filterOperator.io.in(i) := emptyPixel
   }
 
+  // Default outputs
+  io.in.ready := false.B
+  io.state := stateReg
+  io.out.valid := false.B
+  io.out.bits.row := 0.U
+  io.out.bits.col := 0.U
+  io.out.bits.data := emptyPixel
+
+  // Update coordinates to iterate in row-major order
+  def nextCoordinate(row: UInt, col: UInt): Unit = {
+    col := col + 1.U
+    when (col === (p.numCols - 1).U) {
+      col := 0.U
+      row := row + 1.U
+    }
+  }
+}
+
+class BasicImageProcessor(p: ImageProcessorParams, filterName: String) extends ImageProcessor(p, filterName) {
+  // Finite state machine
+  switch (stateReg) {
+    // READY:
+    //   This state is supposed to wait until a high "input valid" signal is received. Then, it switches to the
+    // FILLING TOP ROW state. It doesn't expect any pixel input in this cycle.
+    is(ImageProcessorState.idle) {
+      io.in.ready := true.B
+      // Wait until input is being sent
+      when (io.in.valid) {
+        // Start taking the input a pixel at a time in the next cycle
+        stateReg := ImageProcessorState.processing
+        currentRow := 0.U
+        currentCol := 0.U
+      }
+    }
+    // PROCESSING:
+    //   This state is supposed to apply the filter on the image while keeping taking an input pixel every cycle until
+    // the entire image is taken. It assumes pixels will be given in row-major order and there will be a new pixel every
+    // cycle. It doesn't check "input valid" signal. Every cycle, the filter will be applied for the
+    // (currentRow-1, currentCol-1) pixel. When it reaches the end of the last row, it switches to the DONE state.
+    // WARNING: The image processor doesn't apply the filter for edge pixels since every filter handles them differently.
+    is (ImageProcessorState.processing) {
+      // Check if the input is in the correct order
+      assert(io.in.bits.row === currentRow)
+      assert(io.in.bits.col === currentCol)
+      // Update the current coordinate
+      nextCoordinate(currentRow, currentCol)
+      // Apply filter for (currentRow,currentCol)
+      for (n <- 0 until filterOperator.numKernelRows; m <- 0 until filterOperator.numKernelCols) {
+        if (m != 2) {
+          filterOperator.io.in(0) := io.in.bits.data
+        }
+      }
+      // Output the processed pixel
+      io.out.bits.data := filterOperator.io.out
+      io.out.valid := true.B
+      io.out.bits.row := currentRow
+      io.out.bits.col := currentCol
+      // Stop processing when reached the end
+      when (currentCol === (p.numCols - 1).U && currentRow === (p.numRows - 1).U) {
+        stateReg := ImageProcessorState.done
+      }
+    }
+    // DONE:
+    //   This state is the last state for now. Nothing happens here.
+    is(ImageProcessorState.done) {
+    }
+  }
+}
+
+class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends ImageProcessor(p, filterName) {
+  // Pixel matrix to apply the filter kernel on
+  // Only has the first two columns because the last column is received by the buffers and the input
+  val pixelMatrix = Reg(Vec(p.numChannels, Vec(p.numChannels - 1, HWPixel())))
   // Row buffers
   val topRowBuffer = Module(new RowBufferMemory(p))
   bufferInit(topRowBuffer)
@@ -69,23 +148,6 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
   def bufferRead(buffer: RowBufferMemory, addr: UInt): Unit = {
     buffer.io.rEn := true.B
     buffer.io.rAddr := addr
-  }
-
-  // Default outputs
-  io.in.ready := false.B
-  io.state := stateReg
-  io.out.valid := false.B
-  io.out.bits.row := 0.U
-  io.out.bits.col := 0.U
-  io.out.bits.data := emptyPixel
-
-  // Update coordinates to iterate in row-major order
-  def nextCoordinate(row: UInt, col: UInt): Unit = {
-    col := col + 1.U
-    when (col === (p.numCols - 1).U) {
-      col := 0.U
-      row := row + 1.U
-    }
   }
 
   // Finite state machine
