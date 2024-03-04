@@ -240,11 +240,15 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
       // If first two pixels in the row, we will just read buffers and take the input (no output)
       when (currentCol > 1.U) {
         // Apply filter for (currentRow-1,currentCol-1)
-        for (n <- 0 until filterOperator.numKernelRows; m <- 0 until filterOperator.numKernelCols) {
-          if (m != 2) {
-            filterOperator.io.in(n*3) := pixelMatrix(n)(m)
-          }
-        }
+        filterOperator.io.in(0) := pixelMatrix(0)(0)
+        filterOperator.io.in(1) := pixelMatrix(0)(1)
+        filterOperator.io.in(2) := topRowBuffer.io.rData
+        filterOperator.io.in(3) := pixelMatrix(1)(0)
+        filterOperator.io.in(4) := pixelMatrix(1)(1)
+        filterOperator.io.in(5) := midRowBuffer.io.rData
+        filterOperator.io.in(6) := pixelMatrix(2)(0)
+        filterOperator.io.in(7) := pixelMatrix(2)(1)
+        filterOperator.io.in(8) := io.in.bits.data
         filterOperator.io.in(2) := topRowBuffer.io.rData
         filterOperator.io.in(5) := midRowBuffer.io.rData
         filterOperator.io.in(8) := io.in.bits.data
