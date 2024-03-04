@@ -9,3 +9,7 @@ Things to do:
 1. After parameterizing the pipeline, parallelize filter application so that the pipeline won't have to stall.
 1. Add more filters to match their equivalent from the library
 1. Check if output pixels match the library in unit tests
+
+How to run:
+1. Run sbt test.
+2. The tester will take sample.png from image folder and create output of each filter in temp folder by both model (library) and Chisel.
