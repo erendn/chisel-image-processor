@@ -245,9 +245,6 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
         filterOperator.io.in(6) := pixelMatrix(2)(0)
         filterOperator.io.in(7) := pixelMatrix(2)(1)
         filterOperator.io.in(8) := io.in.bits.data
-        filterOperator.io.in(2) := topRowBuffer.io.rData
-        filterOperator.io.in(5) := midRowBuffer.io.rData
-        filterOperator.io.in(8) := io.in.bits.data
         // Output the processed pixel
         io.out.bits.data := filterOperator.io.out
         io.out.valid := true.B
