@@ -1,7 +1,7 @@
 # Chisel Image Processor
 
 
-## Things to do:
+## Things to do
 1. Find a strategy for edge pixels.
     - Since edge pixels are missing some neighbor pixels, kernel becomes off the image.
     - Currently the processor doesn't apply filters on edge pixels since we haven't decided how to handle them.
@@ -11,6 +11,11 @@
 1. Add more filters to match their equivalent from the library
 
 
-## Assumptions:
+## How to run
+1. Run sbt test.
+2. The tester will take sample.png from image folder and create output of each filter in temp folder by both model (library) and Chisel.
+
+
+## Assumptions
 1. We're using the Scrimage library for unit tests. Because of the potential floating-point precision issues, rounding pixel
     values can cause incorrect calculations. Therefore, we're testing pixel values with a tolerance of being off by 1.
