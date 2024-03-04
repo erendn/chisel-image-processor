@@ -56,8 +56,8 @@ class HWBumpFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
 class HWBlurFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
   // Scaled gradient can be 255*2 at maximum; therefore, it must be 9 bits
   val gScale = Wire(Vec(numPixels, Vec(p.numChannels, UInt(9.W))))
-  // Gradient can be 255 at maximum; therefore, it must be 8 bits
-  val g = Wire(Vec(numPixels, Vec(p.numChannels, UInt(8.W))))
+  // Sum gradient can be 255*4+255*2*5 at maximum; therefore, it must be 12 bits
+  val gSum = Wire(Vec(p.numChannels, UInt(12.W)))
 
   for (i <- 0 until p.numChannels) {
     // Kernel is:
@@ -73,12 +73,10 @@ class HWBlurFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
     gScale(6)(i) := io.in(6)(i)
     gScale(7)(i) := io.in(7)(i) * 2.U
     gScale(8)(i) := io.in(8)(i)
-    for (j <- 0 until 9) {
-      g(j)(i) := gScale(j)(i) / 14.U
-    }
-    io.out(i) := g(0)(i) + g(1)(i) + g(2)(i) +
-                 g(3)(i) + g(4)(i) + g(5)(i) +
-                 g(6)(i) + g(7)(i) + g(8)(i)
+    gSum(i) := gScale(0)(i) +& gScale(1)(i) +& gScale(2)(i) +&
+               gScale(3)(i) +& gScale(4)(i) +& gScale(5)(i) +&
+               gScale(6)(i) +& gScale(7)(i) +& gScale(8)(i)
+    io.out(i) := (gSum(i) +& 7.U) / 14.U // Add 0.5 to round
   }
 }
 
