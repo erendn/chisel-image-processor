@@ -180,7 +180,7 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
         // Apply filter for (currentRow-1,currentCol-1)
         for (n <- 0 until filterOperator.numKernelRows; m <- 0 until filterOperator.numKernelCols) {
           if (m != filterOperator.numKernelCols - 1) {
-            filterOperator.io.in(n*filterOperator.numKernelRows) := pixelMatrix(n)(m)
+            filterOperator.io.in(n*filterOperator.numKernelCols) := pixelMatrix(n)(m)
           }
         }
         filterOperator.io.in(2) := topRowBuffer.io.rData
