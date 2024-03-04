@@ -13,9 +13,10 @@
 
 ## How to run
 1. Run sbt test.
-2. The tester will take sample.png from image folder and create output of each filter in temp folder by both model (library) and Chisel.
+2. The tester will take `sample.png` from the image directory and create output of each filter in temp directory from the
+    library and the processor.
 
 
 ## Assumptions
-1. We're using the Scrimage library for unit tests. Because of the potential floating-point precision issues, rounding pixel
-    values can cause incorrect calculations. Therefore, we're testing pixel values with a tolerance of being off by 1.
+1. We're using the Scrimage library for unit tests. Because of floating-point precision issues, rounding pixel values can
+    cause incorrect calculations. Therefore, we're testing pixel values with a tolerance of being off by 1.
