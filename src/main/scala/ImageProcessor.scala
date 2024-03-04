@@ -179,8 +179,8 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
       when (currentCol > 1.U) {
         // Apply filter for (currentRow-1,currentCol-1)
         for (n <- 0 until filterOperator.numKernelRows; m <- 0 until filterOperator.numKernelCols) {
-          if (m != 2) {
-            filterOperator.io.in(n*3) := pixelMatrix(n)(m)
+          if (m != filterOperator.numKernelCols - 1) {
+            filterOperator.io.in(n*filterOperator.numKernelRows) := pixelMatrix(n)(m)
           }
         }
         filterOperator.io.in(2) := topRowBuffer.io.rData
@@ -202,4 +202,15 @@ class ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams =
     is(ImageProcessorState.done) {
     }
   }
+}
+
+class BasicImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams => FilterOperator) extends ImageProcessor(p: ImageProcessorParams, filterFunc: ImageProcessorParams => FilterOperator) {
+  // gray filter
+  val r = io.in.bits.data(0.U) * 21.U
+  val g = io.in.bits.data(1.U) * 71.U
+  val b = io.in.bits.data(2.U) * 7.U
+  val gray_val = (r + g + b) / 100.U
+  io.out.bits.data(0.U) := gray_val + 3.U 
+  io.out.bits.data(1.U) := gray_val + 3.U
+  io.out.bits.data(2.U) := gray_val + 3.U
 }

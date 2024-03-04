@@ -3,7 +3,7 @@ package chisel_image_processor
 import org.scalatest.flatspec.AnyFlatSpec
 import chisel3._
 import chiseltest._
-import com.sksamuel.scrimage.filter.{BufferedOpFilter, BumpFilter, EdgeFilter}
+import com.sksamuel.scrimage.filter.{BufferedOpFilter, BumpFilter, EdgeFilter, GrayscaleFilter}
 import com.sksamuel.scrimage.pixels.Pixel
 
 class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
@@ -21,6 +21,11 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
     val filtered = ImageProcessorModel.applyFilter(image, new BumpFilter())
     ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_bump_model_output.png")
+  }
+  it should "apply gray filter" in {
+    val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
+    val filtered = image.filter(new GrayscaleFilter())
+    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_gray_model_output.png")
   }
 
   def doTest(filterFunc: ImageProcessorParams => FilterOperator, libFilter: BufferedOpFilter, inputFile: String, outputFile: String): Unit = {
@@ -76,5 +81,34 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   }
   it should "apply bump filter" in {
     doTest(FilterGenerators.bumpFilter, new BumpFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_bump_output.png")
+  }
+  behavior of "BasicImageProcessor"
+  it should "apply gray filter (will fail due to output value not exact matched)" in {
+    // This test doesn't pass due to the color value is not perfectly match (issue converting float and int)
+    // The resulting output can be +1 or -1 of the expected value from library
+    val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
+    val filteredImage = image.filter(new GrayscaleFilter())
+    val p = ImageProcessorModel.getImageParams(image)
+    val pixels = ImageProcessorModel.getImagePixels(image)
+    val filteredPixels = ImageProcessorModel.getImagePixels(filteredImage)
+    // sobelFilter is used as input since filterFunc is required
+    // currently gray filter is directly under BasicImageProcessor
+    test(new BasicImageProcessor(p, FilterGenerators.sobelFilter)) { dut =>
+      for (n <- 0 until p.numRows) {
+        for (m <- 0 until p.numCols) {
+          for (c <- 0 until p.numChannels) {
+            dut.io.in.bits.row.poke(n.U)
+            dut.io.in.bits.col.poke(m.U)
+            dut.io.in.bits.data(c).poke(pixels(n)(m)(c).U)
+            dut.clock.step()
+            if (c == 2) {
+              for (i <- 0 until p.numChannels) {
+                dut.io.out.bits.data(i).expect(filteredPixels(n)(m)(i).U)
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
