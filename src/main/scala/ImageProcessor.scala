@@ -51,7 +51,7 @@ abstract class ImageProcessor(p: ImageProcessorParams, filterName: String) exten
   val currentCol = RegInit(0.U(log2Ceil(p.numCols).W))
   // Instantiate the filter operator
   val filterOperator = Module(FilterGenerator.get(p, filterName))
-  for (i <- 0 until filterOperator.numKernelRows * filterOperator.numKernelCols) {
+  for (i <- 0 until filterOperator.numPixels) {
     filterOperator.io.in(i) := emptyPixel
   }
 
@@ -101,11 +101,7 @@ class BasicImageProcessor(p: ImageProcessorParams, filterName: String) extends I
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
       // Apply filter for (currentRow,currentCol)
-      for (n <- 0 until filterOperator.numKernelRows; m <- 0 until filterOperator.numKernelCols) {
-        if (m != 2) {
-          filterOperator.io.in(0) := io.in.bits.data
-        }
-      }
+      filterOperator.io.in(0) := io.in.bits.data
       // Output the processed pixel
       io.out.bits.data := filterOperator.io.out
       io.out.valid := true.B

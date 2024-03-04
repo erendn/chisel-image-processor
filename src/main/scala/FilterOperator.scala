@@ -25,13 +25,15 @@ object FilterGenerator {
 // Parent class for all filter operators. Each child class must have a corresponding entry in the generator function in
 // the FilterGenerators object to be used in the ImageProcessor class instance.
 abstract class FilterOperator(p: ImageProcessorParams, rows: Int, cols: Int) extends CustomModule(p) {
-  val io = IO(new Bundle {
-    val in = Input(Vec(rows * cols, HWPixel())) // Input of 3x3 pixels
-    val out = Output(HWPixel()) // Output of the middle pixel
-  })
   val numKernelRows: Int = rows
   val numKernelCols: Int = cols
+  val numPixels: Int = rows * cols
   val isKernelFilter: Boolean = rows > 1 || cols > 1
+  val io = IO(new Bundle {
+    val in = Input(Vec(numPixels, HWPixel())) // Input of 3x3 pixels
+    val out = Output(HWPixel()) // Output of the middle pixel
+  })
+
 }
 
 class HWSobelFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
