@@ -63,13 +63,44 @@ abstract class ImageProcessor(p: ImageProcessorParams, filterName: String) exten
   io.out.bits.col := 0.U
   io.out.bits.data := emptyPixel
 
+  // Helper functions
+  // Return the next column value in row-major order
+  def getNextColumn(col: UInt): UInt = {
+    Mux(col === (p.numCols - 1).U, 0.U, col + 1.U)
+  }
+  // Return the next row value in row-major order
+  def getNextRow(row: UInt, col: UInt): UInt = {
+    Mux(col === (p.numCols - 1).U, row + 1.U, row)
+  }
+  // Return the previous column value in row-major order
+  def getPrevColumn(col: UInt): UInt = {
+    Mux(col === 0.U, (p.numCols - 1).U, col - 1.U)
+  }
+  // Return the previous row value in row-major order
+  def getPrevRow(row: UInt, col: UInt): UInt = {
+    Mux(col === 0.U, row - 1.U, row)
+  }
+  // Return the upper left coordinate's column
+  def getUpperLeftColumn(col: UInt): UInt = {
+    getPrevColumn(col)
+  }
+  // Return the upper left coordinate's row
+  def getUpperLeftRow(row: UInt, col: UInt): UInt = {
+    Mux(row === 0.U, 0.U, row - 1.U)
+  }
+  // Return if the given coordinate is inside the image boundaries
+  def isInImage(row: UInt, col: UInt): Bool = {
+    (row >= 0.U && row <= (p.numRows - 1).U) && (col >= 0.U && col <= (p.numCols - 1).U)
+  }
+  // Reset the coordinate to (0,0)
+  def resetCoordinate(row: UInt, col: UInt): Unit = {
+    col := 0.U
+    row := 0.U
+  }
   // Update coordinates to iterate in row-major order
   def nextCoordinate(row: UInt, col: UInt): Unit = {
-    col := col + 1.U
-    when (col === (p.numCols - 1).U) {
-      col := 0.U
-      row := row + 1.U
-    }
+    col := getNextColumn(col)
+    row := getNextRow(row, col)
   }
 }
 
@@ -85,8 +116,7 @@ class BasicImageProcessor(p: ImageProcessorParams, filterName: String) extends I
       when (io.in.valid) {
         // Start taking the input a pixel at a time in the next cycle
         stateReg := ImageProcessorState.processing
-        currentRow := 0.U
-        currentCol := 0.U
+        resetCoordinate(currentRow, currentCol)
       }
     }
     // PROCESSING:
@@ -157,8 +187,7 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
       when (io.in.valid) {
         // Start taking the input a pixel at a time in the next cycle
         stateReg := ImageProcessorState.fillingTopRow
-        currentRow := 0.U
-        currentCol := 0.U
+        resetCoordinate(currentRow, currentCol)
       }
     }
     // FILLING TOP ROW:
@@ -211,12 +240,8 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
       // Read next pixels from buffers
-      bufferRead(topRowBuffer, currentCol + 1.U)
-      bufferRead(midRowBuffer, currentCol + 1.U)
-      when (currentCol === (p.numCols - 1).U) {
-        bufferRead(topRowBuffer, 0.U)
-        bufferRead(midRowBuffer, 0.U)
-      }
+      bufferRead(topRowBuffer, getNextColumn(currentCol))
+      bufferRead(midRowBuffer, getNextColumn(currentCol))
       // Update pixel matrix for the next cycle
       // | a | d |   | h |    | d | h |
       // | b | e | + | i | -> | e | i |
