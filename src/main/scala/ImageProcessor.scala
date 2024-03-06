@@ -71,6 +71,14 @@ abstract class ImageProcessor(p: ImageProcessorParams, filterName: String) exten
       row := row + 1.U
     }
   }
+
+  // Set up output from the filter
+  def setOutput(row: UInt, col: UInt): Unit = {
+    io.out.bits.data := filterOperator.io.out
+    io.out.valid := true.B
+    io.out.bits.row := row
+    io.out.bits.col := col
+  }
 }
 
 class BasicImageProcessor(p: ImageProcessorParams, filterName: String) extends ImageProcessor(p, filterName) {
@@ -103,10 +111,7 @@ class BasicImageProcessor(p: ImageProcessorParams, filterName: String) extends I
       // Apply filter for (currentRow,currentCol)
       filterOperator.io.in(0) := io.in.bits.data
       // Output the processed pixel
-      io.out.bits.data := filterOperator.io.out
-      io.out.valid := true.B
-      io.out.bits.row := currentRow
-      io.out.bits.col := currentCol
+      setOutput(currentRow, currentCol)
       // Stop processing when reached the end
       when (currentCol === (p.numCols - 1).U && currentRow === (p.numRows - 1).U) {
         stateReg := ImageProcessorState.done
@@ -234,26 +239,45 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
       bufferWrite(topRowBuffer, currentCol, midRowBuffer.io.rData) // Shift mid to top
       bufferWrite(midRowBuffer, currentCol, io.in.bits.data) // Put new pixel to mid
       // If first two pixels in the row, we will just read buffers and take the input (no output)
-      when (currentCol > 1.U) {
-        // Apply filter for (currentRow-1,currentCol-1)
-        filterOperator.io.in(0) := pixelMatrix(0)(0)
-        filterOperator.io.in(1) := pixelMatrix(0)(1)
-        filterOperator.io.in(2) := topRowBuffer.io.rData
-        filterOperator.io.in(3) := pixelMatrix(1)(0)
-        filterOperator.io.in(4) := pixelMatrix(1)(1)
-        filterOperator.io.in(5) := midRowBuffer.io.rData
-        filterOperator.io.in(6) := pixelMatrix(2)(0)
-        filterOperator.io.in(7) := pixelMatrix(2)(1)
-        filterOperator.io.in(8) := io.in.bits.data
-        // Output the processed pixel
-        io.out.bits.data := filterOperator.io.out
-        io.out.valid := true.B
-        io.out.bits.row := currentRow - 1.U
-        io.out.bits.col := currentCol - 1.U
-        // Stop processing when reached the end
-        when (currentCol === (p.numCols - 1).U && currentRow === (p.numRows - 1).U) {
-          stateReg := ImageProcessorState.done
+      // Apply filter for (currentRow-1,currentCol-1)
+      filterOperator.io.in(0) := pixelMatrix(0)(0)
+      filterOperator.io.in(1) := pixelMatrix(0)(1)
+      filterOperator.io.in(2) := topRowBuffer.io.rData
+      filterOperator.io.in(3) := pixelMatrix(1)(0)
+      filterOperator.io.in(4) := pixelMatrix(1)(1)
+      filterOperator.io.in(5) := midRowBuffer.io.rData
+      filterOperator.io.in(6) := pixelMatrix(2)(0)
+      filterOperator.io.in(7) := pixelMatrix(2)(1)
+      filterOperator.io.in(8) := io.in.bits.data
+
+      // Edge cases
+      // apply empty to out of edge kernel pixels
+      when (currentCol === 1.U) {
+        for (n <- 0 until filterOperator.numKernelCols) {
+          filterOperator.io.in(n * filterOperator.numKernelRows) := emptyPixel
         }
+      }
+      .elsewhen (currentCol === p.numCols.U) {
+        for (n <- 0 until filterOperator.numKernelCols) {
+          filterOperator.io.in(n * filterOperator.numKernelRows + (filterOperator.numKernelCols - 1)) := emptyPixel
+        }
+      }
+      when (currentRow === 1.U) {
+        for (n <- 0 until filterOperator.numKernelRows) {
+          filterOperator.io.in(n) := emptyPixel
+        }
+      }
+      .elsewhen (currentRow === p.numRows.U) {
+        val total_index = filterOperator.numKernelRows * filterOperator.numKernelCols
+        for (n <- (total_index - filterOperator.numKernelRows) until total_index) {
+          filterOperator.io.in(n) := emptyPixel
+        }
+      }
+      // Output the processed pixel
+      setOutput(currentRow - 1.U, currentCol - 1.U)
+      // Stop processing when reached the end
+      when (currentCol === p.numCols.U && currentRow === p.numRows.U) {
+        stateReg := ImageProcessorState.done
       }
     }
     // DONE:
