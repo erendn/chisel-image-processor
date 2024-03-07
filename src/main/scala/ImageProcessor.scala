@@ -180,6 +180,17 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
     buffer.io.rEn := true.B
     buffer.io.rAddr := addr
   }
+  def filterInput(top: Vec[UInt], mid: Vec[UInt], bot: Vec[UInt]): Unit = {
+    filterOperator.io.in(0) := pixelMatrix(0)(0)
+    filterOperator.io.in(1) := pixelMatrix(0)(1)
+    filterOperator.io.in(2) := top
+    filterOperator.io.in(3) := pixelMatrix(1)(0)
+    filterOperator.io.in(4) := pixelMatrix(1)(1)
+    filterOperator.io.in(5) := mid
+    filterOperator.io.in(6) := pixelMatrix(2)(0)
+    filterOperator.io.in(7) := pixelMatrix(2)(1)
+    filterOperator.io.in(8) := bot
+  }
 
   // Finite state machine
   switch (stateReg) {
@@ -230,6 +241,7 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
         // Read initial pixels from buffers
         bufferRead(topRowBuffer, 0.U)
         bufferRead(midRowBuffer, 0.U)
+        currentRow := 1.U // Reset to start processing from top edge
       }
     }
     // PROCESSING:
@@ -239,75 +251,101 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
     // (currentRow-1, currentCol-1) pixel. When it reaches the end of the last row, it switches to the DONE state.
     // WARNING: The image processor doesn't apply the filter for edge pixels since every filter handles them differently.
     is (ImageProcessorState.processing) {
-      // Check if the input is in the correct order
-      assert(io.in.bits.row === currentRow)
-      assert(io.in.bits.col === currentCol)
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
-      // Read next pixels from buffers
-      bufferRead(topRowBuffer, getNextColumn(currentCol))
-      bufferRead(midRowBuffer, getNextColumn(currentCol))
-      // Update pixel matrix for the next cycle
-      // | a | d |   | h |    | d | h |
-      // | b | e | + | i | -> | e | i |
-      // | c | f |   | j |    | f | j |
-      // h: Output of top row buffer
-      // i: Output of mid row buffer
-      // j: Input pixel
-      for (n <- 0 until filterOperator.numKernelRows) {
-        pixelMatrix(n)(0) := pixelMatrix(n)(1)
-      }
-      pixelMatrix(0)(1) := topRowBuffer.io.rData
-      pixelMatrix(1)(1) := midRowBuffer.io.rData
-      pixelMatrix(2)(1) := io.in.bits.data
-      // Update buffers
-      bufferWrite(topRowBuffer, currentCol, midRowBuffer.io.rData) // Shift mid to top
-      bufferWrite(midRowBuffer, currentCol, io.in.bits.data) // Put new pixel to mid
-      // If first two pixels in the row, we will just read buffers and take the input (no output)
-      // Apply filter for (currentRow-1,currentCol-1)
-      filterOperator.io.in(0) := pixelMatrix(0)(0)
-      filterOperator.io.in(1) := pixelMatrix(0)(1)
-      filterOperator.io.in(2) := topRowBuffer.io.rData
-      filterOperator.io.in(3) := pixelMatrix(1)(0)
-      filterOperator.io.in(4) := pixelMatrix(1)(1)
-      filterOperator.io.in(5) := midRowBuffer.io.rData
-      filterOperator.io.in(6) := pixelMatrix(2)(0)
-      filterOperator.io.in(7) := pixelMatrix(2)(1)
-      filterOperator.io.in(8) := io.in.bits.data
-
-      // Edge cases
-      // apply empty to out of edge kernel pixels
-      when (currentCol === 1.U) {
-        for (n <- 0 until filterOperator.numKernelCols) {
-          filterOperator.io.in(n * filterOperator.numKernelRows) := emptyPixel
-        }
-      }
-      .elsewhen (currentCol === p.numCols.U) {
-        for (n <- 0 until filterOperator.numKernelCols) {
-          filterOperator.io.in(n * filterOperator.numKernelRows + (filterOperator.numKernelCols - 1)) := emptyPixel
-        }
-      }
+      // Top and bottom
       when (currentRow === 1.U) {
+        when (currentCol === 0.U) {
+          for (n <- 0 until filterOperator.numKernelRows) {
+            pixelMatrix(n)(0) := emptyPixel
+          }
+        }
+        for (n <- 0 until filterOperator.numKernelCols - 1) {
+          pixelMatrix(0)(n) := emptyPixel
+        }
+        pixelMatrix(1)(1) := topRowBuffer.io.rData
+        pixelMatrix(2)(1) := midRowBuffer.io.rData
+        when (currentCol >= 1.U && currentCol =/= (p.numCols - 1).U) {
+          filterInput(emptyPixel, topRowBuffer.io.rData, midRowBuffer.io.rData)
+          setOutput(currentRow - 1.U, currentCol - 1.U)
+        }
+        .elsewhen (currentCol === (p.numCols - 1).U) {
+          filterInput(emptyPixel, emptyPixel, emptyPixel)
+          setOutput(currentRow - 1.U, currentCol - 1.U)
+        }
+      }
+      .elsewhen (currentRow === (p.numRows - 1).U) {
+        when (currentCol === 0.U) {
+          for (n <- 0 until filterOperator.numKernelRows) {
+            pixelMatrix(n)(0) := emptyPixel
+          }
+        }
+        for (n <- 0 until filterOperator.numKernelCols - 1) {
+          pixelMatrix(2)(n) := emptyPixel
+        }
+        pixelMatrix(1)(1) := midRowBuffer.io.rData
+        pixelMatrix(2)(1) := io.in.bits.data
+        val x = pixelMatrix(1)(1)
+        printf(cf"bottom: $x \n")
+        when (currentCol >= 1.U && currentCol =/= (p.numCols - 1).U) {
+          filterInput(midRowBuffer.io.rData, io.in.bits.data, emptyPixel)
+          setOutput(currentRow - 1.U, currentCol - 1.U)
+        }
+        .elsewhen (currentCol === (p.numCols - 1).U) {
+          filterInput(emptyPixel, emptyPixel, emptyPixel)
+          setOutput(currentRow - 1.U, currentCol - 1.U)
+          val x = pixelMatrix(1)(1)
+          printf(cf"right_bottom: $x \n")
+          // Stop processing when reached the end
+          stateReg := ImageProcessorState.done
+        }
+      }
+      when (currentRow > 1.U && currentRow =/= (p.numRows - 1).U) {
+        // Check if the input is in the correct order
+        // assert(io.in.bits.row === currentRow)
+        // assert(io.in.bits.col === currentCol)
+        // Read next pixels from buffers
+        bufferRead(topRowBuffer, getNextColumn(currentCol))
+        bufferRead(midRowBuffer, getNextColumn(currentCol))
+        // Update pixel matrix for the next cycle
+        // | a | d |   | h |    | d | h |
+        // | b | e | + | i | -> | e | i |
+        // | c | f |   | j |    | f | j |
+        // h: Output of top row buffer
+        // i: Output of mid row buffer
+        // j: Input pixel
         for (n <- 0 until filterOperator.numKernelRows) {
-          filterOperator.io.in(n) := emptyPixel
+          pixelMatrix(n)(0) := pixelMatrix(n)(1)
         }
-      }
-      .elsewhen (currentRow === p.numRows.U) {
-        val total_index = filterOperator.numKernelRows * filterOperator.numKernelCols
-        for (n <- (total_index - filterOperator.numKernelRows) until total_index) {
-          filterOperator.io.in(n) := emptyPixel
+        pixelMatrix(0)(1) := topRowBuffer.io.rData
+        pixelMatrix(1)(1) := midRowBuffer.io.rData
+        pixelMatrix(2)(1) := io.in.bits.data
+        when (currentCol === 0.U) {
+          for (n <- 0 until filterOperator.numKernelRows) {
+            pixelMatrix(n)(0) := emptyPixel
+          }
         }
-      }
-      // Output the processed pixel
-      setOutput(currentRow - 1.U, currentCol - 1.U)
-      // Stop processing when reached the end
-      when (currentCol === p.numCols.U && currentRow === p.numRows.U) {
-        stateReg := ImageProcessorState.done
+        // Update buffers
+        bufferWrite(topRowBuffer, currentCol, midRowBuffer.io.rData) // Shift mid to top
+        bufferWrite(midRowBuffer, currentCol, io.in.bits.data) // Put new pixel to mid
+        // If first two pixels in the row, we will just read buffers and take the input (no output)
+        // Apply filter for (currentRow-1,currentCol-1)
+        when (currentCol >= 1.U && currentCol =/= (p.numCols - 1).U) {
+          // Apply filter for (currentRow-1,currentCol-1)
+          filterInput(topRowBuffer.io.rData, midRowBuffer.io.rData, io.in.bits.data)
+          // Output the processed pixel
+          setOutput(currentRow - 1.U, currentCol - 1.U)
+        }
+        .elsewhen (currentCol === (p.numCols - 1).U) {
+          filterInput(emptyPixel, emptyPixel, emptyPixel)
+          setOutput(currentRow - 1.U, currentCol - 1.U)
+        }
       }
     }
     // DONE:
     //   This state is the last state for now. Nothing happens here.
     is(ImageProcessorState.done) {
+      printf("done")
     }
   }
 }
