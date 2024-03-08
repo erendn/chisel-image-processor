@@ -263,8 +263,8 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
         for (n <- 0 until filterOperator.numKernelCols - 1) {
           pixelMatrix(0)(n) := emptyPixel
         }
-        pixelMatrix(1)(1) := topRowBuffer.io.rData
-        pixelMatrix(2)(1) := midRowBuffer.io.rData
+        pixelMatrix(1)(1) := midRowBuffer.io.rData
+        pixelMatrix(2)(1) := io.in.bits.data
         when (currentCol >= 1.U && currentCol =/= (p.numCols - 1).U) {
           filterInput(emptyPixel, topRowBuffer.io.rData, midRowBuffer.io.rData)
           setOutput(currentRow - 1.U, currentCol - 1.U)
@@ -283,10 +283,8 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
         for (n <- 0 until filterOperator.numKernelCols - 1) {
           pixelMatrix(2)(n) := emptyPixel
         }
-        pixelMatrix(1)(1) := midRowBuffer.io.rData
-        pixelMatrix(2)(1) := io.in.bits.data
-        val x = pixelMatrix(1)(1)
-        printf(cf"bottom: $x \n")
+        pixelMatrix(1)(1) := topRowBuffer.io.rData
+        pixelMatrix(2)(1) := midRowBuffer.io.rData
         when (currentCol >= 1.U && currentCol =/= (p.numCols - 1).U) {
           filterInput(midRowBuffer.io.rData, io.in.bits.data, emptyPixel)
           setOutput(currentRow - 1.U, currentCol - 1.U)
@@ -294,8 +292,6 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
         .elsewhen (currentCol === (p.numCols - 1).U) {
           filterInput(emptyPixel, emptyPixel, emptyPixel)
           setOutput(currentRow - 1.U, currentCol - 1.U)
-          val x = pixelMatrix(1)(1)
-          printf(cf"right_bottom: $x \n")
           // Stop processing when reached the end
           stateReg := ImageProcessorState.done
         }
@@ -345,7 +341,6 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
     // DONE:
     //   This state is the last state for now. Nothing happens here.
     is(ImageProcessorState.done) {
-      printf("done")
     }
   }
 }
