@@ -72,8 +72,8 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
           dut.clock.step()
         }
       }
-      for (r <- 0 until p.numRows) {
-        for (c <- 0 until 2) {
+      for (r <- 0 until 2) {
+        for (c <- 0 until p.numCols) {
           if (dut.io.out.valid.peekBoolean()) {
             val x = dut.io.out.bits.col.peek().litValue.toInt
             val y = dut.io.out.bits.row.peek().litValue.toInt
