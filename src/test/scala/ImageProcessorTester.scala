@@ -10,34 +10,36 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   behavior of "ImageProcessorModel"
   it should "read/write image file" in {
     val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
-    ImageProcessorModel.writeImage(image, "./src/test/temp/sample_model_output.png")
+    ImageProcessorModel.writeImage(image, "./src/test/temp/sample_output_model.png")
   }
   it should "apply bump filter" in {
     val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
     val filtered = ImageProcessorModel.applyFilter(image, new BumpFilter())
-    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_bump_model_output.png")
+    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_bump_output_model.png")
   }
   it should "apply blur filter" in {
     val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
     val filtered = ImageProcessorModel.applyFilter(image, new BlurFilter())
-    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_blur_model_output.png")
+    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_blur_output_model.png")
   }
   it should "apply grayscale filter" in {
     val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
     val filtered = ImageProcessorModel.applyFilter(image, new GrayscaleFilter())
-    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_grayscale_model_output.png")
+    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_grayscale_output_model.png")
   }
   it should "apply solarize filter" in {
     val image = ImageProcessorModel.readImage("./src/test/images/sample.png")
     val filtered = ImageProcessorModel.applyFilter(image, new SolarizeFilter())
-    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_solarize_model_output.png")
+    ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_solarize_output_model.png")
   }
 
   def assertWithTolerance(actual: Int, expected: Int): Unit = {
     val diff = (expected - actual).abs
     assert(diff < 2)
   }
-  def doTest(filterName: String, libFilter: Filter, inputFile: String, outputFile: String, parallelism: Int): Unit = {
+  def doTest(filterName: String, libFilter: Filter, parallelism: Int, imageFile: String): Unit = {
+    val inputFile = s"./src/test/images/${imageFile}.png"
+    val outputFile = s"./src/test/temp/${imageFile}_${filterName}_output_${parallelism}.png"
     // Prepare the input image
     // Original image
     val image = ImageProcessorModel.readImage(inputFile)
@@ -127,27 +129,39 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
   }
   behavior of "ImageProcessor"
   it should "apply bump filter (no parallelism)" in {
-    doTest(FilterGenerator.bumpFilter, new BumpFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_bump_output_1.png", 1)
+    doTest(FilterGenerator.bumpFilter, new BumpFilter(), 1, "sample")
   }
   it should "apply blur filter (no parallelism)" in {
-    doTest(FilterGenerator.blurFilter, new BlurFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_blur_output_1.png", 1)
+    doTest(FilterGenerator.blurFilter, new BlurFilter(), 1, "sample")
   }
   it should "apply grayscale filter (no parallelism)" in {
-    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_grayscale_output_1.png", 1)
+    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), 1, "sample")
   }
   it should "apply solarize filter (no parallelism)" in {
-    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_solarize_output_1.png", 1)
+    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), 1, "sample")
   }
   it should "apply bump filter (2-pixel parallelism)" in {
-    doTest(FilterGenerator.bumpFilter, new BumpFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_bump_output_2.png", 2)
+    doTest(FilterGenerator.bumpFilter, new BumpFilter(), 2, "sample")
   }
   it should "apply blur filter (2-pixel parallelism)" in {
-    doTest(FilterGenerator.blurFilter, new BlurFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_blur_output_2.png", 2)
+    doTest(FilterGenerator.blurFilter, new BlurFilter(), 2, "sample")
   }
   it should "apply grayscale filter (2-pixel parallelism)" in {
-    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_grayscale_output_2.png", 2)
+    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), 2, "sample")
   }
   it should "apply solarize filter (2-pixel parallelism)" in {
-    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_solarize_output_2.png", 2)
+    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), 2, "sample")
+  }
+  it should "apply bump filter (5-pixel parallelism)" in {
+    doTest(FilterGenerator.bumpFilter, new BumpFilter(), 5, "sample")
+  }
+  it should "apply blur filter (5-pixel parallelism)" in {
+    doTest(FilterGenerator.blurFilter, new BlurFilter(), 5, "sample")
+  }
+  it should "apply grayscale filter (5-pixel parallelism)" in {
+    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), 5, "sample")
+  }
+  it should "apply solarize filter (5-pixel parallelism)" in {
+    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), 5, "sample")
   }
 }
