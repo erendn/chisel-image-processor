@@ -30,8 +30,8 @@ object ImageProcessorModel {
     this.writeImage(imageObject, file)
   }
 
-  def getImageParams(image: ImmutableImage): ImageProcessorParams = {
-    new ImageProcessorParams(image.width, image.height)
+  def getImageParams(image: ImmutableImage, numPixelsPerCycle: Int): ImageProcessorParams = {
+    new ImageProcessorParams(image.width, image.height, numPixelsPerCycle)
   }
 
   def getImagePixels(image: ImmutableImage): ImageType = {

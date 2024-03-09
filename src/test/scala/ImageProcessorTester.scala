@@ -37,12 +37,17 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     val diff = (expected - actual).abs
     assert(diff < 2)
   }
-  def doTest(filterName: String, libFilter: Filter, inputFile: String, outputFile: String): Unit = {
+  def doTest(filterName: String, libFilter: Filter, inputFile: String, outputFile: String, parallelism: Int): Unit = {
     // Prepare the input image
+    // Original image
     val image = ImageProcessorModel.readImage(inputFile)
+    // Filtered image from the library
     val filteredImage = ImageProcessorModel.applyFilter(ImageProcessorModel.readImage(inputFile), libFilter)
-    val p = ImageProcessorModel.getImageParams(image)
+    // Parameters for the image
+    val p = ImageProcessorModel.getImageParams(image, parallelism)
+    // Original image's pixels to pass to the processor
     val pixels = ImageProcessorModel.getImagePixels(image)
+    // Filtered pixels from the processor
     val filteredPixels = ImageProcessorModel.getImagePixels(filteredImage)
     // Begin the test
     test(ImageProcessorGenerator.get(p, filterName)).withAnnotations(Seq(WriteVcdAnnotation)) { dut =>
@@ -53,48 +58,61 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
       dut.io.in.ready.expect(true.B)
       dut.io.state.expect(ImageProcessorState.idle)
       dut.clock.step()
-      for (r <- 0 until p.numRows) {
-        for (c <- 0 until p.numCols) {
-          for (i <- 0 until p.numChannels) {
-            dut.io.in.bits.row.poke(r.U)
-            dut.io.in.bits.col.poke(c.U)
-            dut.io.in.bits.data(i).poke(pixels(r)(c)(i).U)
+      for (batchIndex <- 0 until p.numRows * p.numBatchesInRow) {
+        // Coordinate of the first pixel in the batch
+        val fr: Int = batchIndex / p.numBatchesInRow
+        val fc: Int = (batchIndex % p.numBatchesInRow) * p.batchSize
+        dut.io.in.bits.row.poke(fr.U)
+        dut.io.in.bits.col.poke(fc.U)
+        // Pass all pixels in the batch
+        for (batchCount <- 0 until p.batchSize) {
+          // Coordinate of this pixel
+          val r: Int = fr
+          val c: Int = fc + batchCount
+          // Pass all channels of this pixel
+          for (channelIndex <- 0 until p.numChannels) {
+            dut.io.in.bits.data(batchCount)(channelIndex).poke(pixels(r)(c)(channelIndex).U)
           }
-          if (dut.io.out.valid.peekBoolean()) {
-            val x = dut.io.out.bits.col.peek().litValue.toInt
-            val y = dut.io.out.bits.row.peek().litValue.toInt
+        }
+        // Save the output batch of the processor if there is one
+        if (dut.io.out.valid.peekBoolean()) {
+          // Coordinate of the first pixel in the batch
+          val fx = dut.io.out.bits.col.peek().litValue.toInt
+          val fy = dut.io.out.bits.row.peek().litValue.toInt
+          for (batchCount <- 0 until p.batchSize) {
+            // Coordinate of this pixel
+            val x = fx + batchCount
+            val y = fy
             val index = y * p.numCols + x
-            val red = dut.io.out.bits.data(0).peek().litValue.toInt
-            val green = dut.io.out.bits.data(1).peek().litValue.toInt
-            val blue = dut.io.out.bits.data(2).peek().litValue.toInt
+            val red = dut.io.out.bits.data(batchCount)(0).peek().litValue.toInt
+            val green = dut.io.out.bits.data(batchCount)(1).peek().litValue.toInt
+            val blue = dut.io.out.bits.data(batchCount)(2).peek().litValue.toInt
             outputPixels(index) = new Pixel(x, y, red, green, blue, 255)
           }
-          dut.clock.step()
-        }
-      }
-      for (_ <- 0 until p.numCols + 1) {
-        if (dut.io.out.valid.peekBoolean()) {
-          val x = dut.io.out.bits.col.peek().litValue.toInt
-          val y = dut.io.out.bits.row.peek().litValue.toInt
-          val index = y * p.numCols + x
-          val red = dut.io.out.bits.data(0).peek().litValue.toInt
-          val green = dut.io.out.bits.data(1).peek().litValue.toInt
-          val blue = dut.io.out.bits.data(2).peek().litValue.toInt
-          outputPixels(index) = new Pixel(x, y, red, green, blue, 255)
         }
         dut.clock.step()
       }
-      for (r <- 0 until p.numRows) {
-        for (c <- 0 until p.numCols) {
-          val index = r * p.numCols + c
-          if (outputPixels(index) == null) {
-            outputPixels(index) = new Pixel(c, r, 0, 0, 0, 0)
+      // Wait for kernel processor outputs
+      for (_ <- 0 until p.numBatchesInRow + 1) {
+        if (dut.io.out.valid.peekBoolean()) {
+          // Coordinate of the first pixel in the batch
+          val fx = dut.io.out.bits.col.peek().litValue.toInt
+          val fy = dut.io.out.bits.row.peek().litValue.toInt
+          for (batchCount <- 0 until p.batchSize) {
+            // Coordinate of this pixel
+            val x = fx + batchCount
+            val y = fy
+            val index = y * p.numCols + x
+            val red = dut.io.out.bits.data(batchCount)(0).peek().litValue.toInt
+            val green = dut.io.out.bits.data(batchCount)(1).peek().litValue.toInt
+            val blue = dut.io.out.bits.data(batchCount)(2).peek().litValue.toInt
+            outputPixels(index) = new Pixel(x, y, red, green, blue, 255)
           }
         }
+        dut.clock.step()
       }
       ImageProcessorModel.writeImage(outputPixels, p, outputFile)
       // Compare all pixels to the library's results
-      // FIXME: Actually compare all pixels after solving the edge issue
        for (r <- 0 until p.numRows) {
          for (c <- 0 until p.numCols) {
            val index = r * p.numCols + c
@@ -108,16 +126,28 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     }
   }
   behavior of "ImageProcessor"
-  it should "apply bump filter" in {
-    doTest(FilterGenerator.bumpFilter, new BumpFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_bump_output.png")
+  it should "apply bump filter (no parallelism)" in {
+    doTest(FilterGenerator.bumpFilter, new BumpFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_bump_output_1.png", 1)
   }
-  it should "apply blur filter" in {
-    doTest(FilterGenerator.blurFilter, new BlurFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_blur_output.png")
+  it should "apply blur filter (no parallelism)" in {
+    doTest(FilterGenerator.blurFilter, new BlurFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_blur_output_1.png", 1)
   }
-  it should "apply grayscale filter" in {
-    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_grayscale_output.png")
+  it should "apply grayscale filter (no parallelism)" in {
+    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_grayscale_output_1.png", 1)
   }
-  it should "apply solarize filter" in {
-    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_solarize_output.png")
+  it should "apply solarize filter (no parallelism)" in {
+    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_solarize_output_1.png", 1)
+  }
+  it should "apply bump filter (2-pixel parallelism)" in {
+    doTest(FilterGenerator.bumpFilter, new BumpFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_bump_output_2.png", 2)
+  }
+  it should "apply blur filter (2-pixel parallelism)" in {
+    doTest(FilterGenerator.blurFilter, new BlurFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_blur_output_2.png", 2)
+  }
+  it should "apply grayscale filter (2-pixel parallelism)" in {
+    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_grayscale_output_2.png", 2)
+  }
+  it should "apply solarize filter (2-pixel parallelism)" in {
+    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), "./src/test/images/sample.png", "./src/test/temp/sample_solarize_output_2.png", 2)
   }
 }

@@ -7,15 +7,15 @@ class RowBufferMemory(p: ImageProcessorParams) extends CustomModule(p) {
   val io = IO(new Bundle {
     // Read port
     val rEn = Input(Bool())
-    val rAddr = Input(UInt(log2Ceil(p.numCols).W))
-    val rData = Output(HWPixel())
+    val rAddr = Input(UInt(log2Ceil(p.numBatchesInRow).W))
+    val rData = Output(HWPixelBatch())
     // Write port
     val wEn = Input(Bool())
-    val wAddr = Input(UInt(log2Ceil(p.numCols).W))
-    val wData = Input(HWPixel())
+    val wAddr = Input(UInt(log2Ceil(p.numBatchesInRow).W))
+    val wData = Input(HWPixelBatch())
   })
   // Fixed memory latency of 1 cycle
-  val mem = SyncReadMem(p.numCols, HWPixel())
+  val mem = SyncReadMem(p.numBatchesInRow, Vec(p.batchSize, HWPixel()))
   io.rData := DontCare
   when (io.rEn) {
     io.rData := mem(io.rAddr)
