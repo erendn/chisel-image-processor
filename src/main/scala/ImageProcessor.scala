@@ -52,7 +52,7 @@ abstract class ImageProcessor(p: ImageProcessorParams, filterName: String) exten
   // Internal state register
   val stateReg = RegInit(ImageProcessorState.idle)
   // Row and column pointers for processing
-  val currentRow = RegInit(0.U(log2Ceil(p.numRows + 2).W)) // +2 since kernel processor is delayed by (p.numCols+1)
+  val currentRow = RegInit(0.U(log2Ceil(p.numRows + 2).W)) // +2 since kernel processor is delayed by (p.numBatchesInRow+1)
   val currentCol = RegInit(0.U(log2Ceil(p.numCols).W))
   // Instantiate the filter operator
   val filterOperators = Seq.fill(p.batchSize)(Module(FilterGenerator.get(p, filterName)))
@@ -71,10 +71,11 @@ abstract class ImageProcessor(p: ImageProcessorParams, filterName: String) exten
   io.out.bits.data := emptyBatch
 
   // Helper functions
-  // Return if the column if at the end of the row
+  // Return if the column if at the end of the row (last batch)
   def isEndOfRow(col: UInt): Bool = {
     col === (p.numCols - p.batchSize).U
   }
+  // Return if the coordinate is at the end of the image (last batch)
   def isEndOfImage(row: UInt, col: UInt): Bool = {
     isEndOfRow(col) && row === (p.numRows - 1).U
   }
@@ -126,22 +127,21 @@ class BasicImageProcessor(p: ImageProcessorParams, filterName: String) extends I
       }
     }
     // PROCESSING:
-    //   This state is supposed to apply the filter on the image while keeping taking an input pixel every cycle until
-    // the entire image is taken. It assumes pixels will be given in row-major order and there will be a new pixel every
-    // cycle. It doesn't check "input valid" signal. Every cycle, the filter will be applied for the
-    // (currentRow, currentCol) pixel. When it reaches the end of the last row, it switches to the DONE state.
+    //   This state is supposed to apply the filter on the image while keeping taking an input batch of pixels every
+    // cycle until the entire image is taken. It assumes batches will be given in row-major order and there will be a
+    // new batch every cycle. It doesn't check "input valid" signal. Every cycle, the filter will be applied for the
+    // current batch. When it reaches the end of the last row, it switches to the DONE state.
     is (ImageProcessorState.processing) {
-      printf(p"inrow: ${io.in.bits.row}, incol: ${io.in.bits.col}, row: $currentRow, col: $currentCol\n")
       // Check if the input is in the correct order
       assert(io.in.bits.row === currentRow)
       assert(io.in.bits.col === currentCol)
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
-      // Apply filter for (currentRow,currentCol)
+      // Apply filter for the current batch
       for (i <- 0 until p.batchSize) {
         filterOperators(i).io.in(0) := io.in.bits.data(i)
       }
-      // Output the processed pixel
+      // Output the processed batch
       for (i <- 0 until p.batchSize) {
         io.out.bits.data(i) := filterOperators(i).io.out
       }
@@ -185,8 +185,9 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
   }
 
   // Pixel matrix to apply the filter kernel on
-  // Only has the first two columns because the last column is received by the buffers and the input
+  // Doesn't have the last column because the last column is received by the buffers and the input
   val pixelMatrix = Reg(Vec(filterOperators(0).numKernelRows, Vec(p.batchSize + 1, HWPixel())))
+  val pixelMatrixLastColumn = Seq(topRowBuffer.io.rData, midRowBuffer.io.rData, io.in.bits.data)
   // Update pixel matrix for the next cycle
   def updatePixelMatrix(): Unit = {
     // | a | d |   | h |    | d | h |
@@ -196,13 +197,11 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
     // i: Output of mid row buffer
     // j: Input pixel
     // Clamp nearest pixels for off-the-edge matrix values for the left edge
-    pixelMatrix(0)(0) := Mux(currentCol > 0.U, pixelMatrix(0)(p.batchSize), topRowBuffer.io.rData(0))
-    pixelMatrix(1)(0) := Mux(currentCol > 0.U, pixelMatrix(1)(p.batchSize), midRowBuffer.io.rData(0))
-    pixelMatrix(2)(0) := Mux(currentCol > 0.U, pixelMatrix(2)(p.batchSize), io.in.bits.data(0))
-    for (i <- 0 until p.batchSize) {
-      pixelMatrix(0)(i + 1) := topRowBuffer.io.rData(i)
-      pixelMatrix(1)(i + 1) := midRowBuffer.io.rData(i)
-      pixelMatrix(2)(i + 1) := io.in.bits.data(i)
+    for (r <- 0 until filterOperators(0).numKernelRows) {
+      pixelMatrix(r)(0) := Mux(currentCol > 0.U, pixelMatrix(r)(p.batchSize), pixelMatrixLastColumn(r)(0))
+      for (b <- 0 until p.batchSize) {
+        pixelMatrix(r)(b + 1) := pixelMatrixLastColumn(r)(b)
+      }
     }
   }
 
@@ -210,7 +209,7 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
   switch (stateReg) {
     // READY:
     //   This state is supposed to wait until a high "input valid" signal is received. Then, it switches to the
-    // FILLING TOP ROW state. It doesn't expect any pixel input in this cycle.
+    // FILLING BUFFER state. It doesn't expect any input pixel batch in this cycle.
     is(ImageProcessorState.idle) {
       io.in.ready := true.B
       // Wait until input is being sent
@@ -221,10 +220,9 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
       }
     }
     // FILLING BUFFER:
-    //   This state is supposed to write "edge action specified" pixels to the internal top row buffer and input pixels
-    // to the internal top row buffer. It assumes pixels will be given in row-major order and there will be a new pixel
-    // every cycle. It doesn't check "input valid" signal. When it reaches the end of the row, it switches to the
-    // PROCESSING state.
+    //   This state is supposed to write clamped pixels to the internal top and middle row buffers. It assumes pixel
+    // batches will be given in row-major order and there will be a new batch every cycle. It doesn't check
+    // "input valid" signal. When it reaches the end of the row, it switches to the PROCESSING state.
     is (ImageProcessorState.fillingBuffer) {
       // Check if the input is in the correct order
       assert(io.in.bits.row === currentRow)
@@ -243,17 +241,17 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
       }
     }
     // PROCESSING:
-    //   This state is supposed to apply the filter on the image while keeping taking an input pixel every cycle until
-    // the entire image is taken. It assumes pixels will be given in row-major order and there will be a new pixel every
-    // cycle. It doesn't check "input valid" signal. Every cycle, the filter will be applied for the
-    // (currentRow-1, currentCol-1) pixel. When it reaches the end of the last row, it switches to the DONE state.
+    //   This state is supposed to apply the filter on the image while keeping taking an input pixel batch every cycle
+    // until the entire image is taken. It assumes batches will be given in row-major order and there will be a new
+    // pixel batch every cycle. It doesn't check "input valid" signal. Every cycle, the filter will be applied for the
+    // upper left pixel batch. When it reaches the end of the last row, it switches to the PROCESSING COOLDOWN state.
     is (ImageProcessorState.processing) {
       // Check if the input is in the correct order
       assert(io.in.bits.row === currentRow)
       assert(io.in.bits.col === currentCol)
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
-      // Read next pixels from buffers
+      // Read next pixel batch from buffers
       bufferRead(topRowBuffer, getNextColumn(currentCol) / p.batchSize.U)
       bufferRead(midRowBuffer, getNextColumn(currentCol) / p.batchSize.U)
       // Update pixel matrix for the next cycle
@@ -261,103 +259,82 @@ class KernelImageProcessor(p: ImageProcessorParams, filterName: String) extends 
       // Update buffers
       bufferWrite(topRowBuffer, currentCol / p.batchSize.U, midRowBuffer.io.rData) // Shift mid to top
       bufferWrite(midRowBuffer, currentCol / p.batchSize.U, io.in.bits.data) // Put new pixel to mid
-      // There won't be an output for only the very first pixel when we switch to this state because the pixel matrix
+      // There won't be an output for only the very first batch when we switch to this state because the pixel matrix
       // hasn't been received yet
       when (currentRow > 1.U || currentCol > 0.U) {
-        // Apply filter for (currentRow-1,currentCol-1)
-        // If (currentRow-1,currentCol-1) is the right edge, apply nearest pixels for off-the-edge matrix values
-        for (i <- 0 until p.batchSize) {
-          // Top row
-          filterOperators(i).io.in(0) := pixelMatrix(0)(i)
-          filterOperators(i).io.in(1) := pixelMatrix(0)(i + 1)
-          if (i < p.batchSize - 1) {
-            filterOperators(i).io.in(2) := pixelMatrix(0)(i + 2)
-          } else {
-            filterOperators(i).io.in(2) := Mux(currentCol === 0.U, pixelMatrix(0)(i + 1), topRowBuffer.io.rData(0))
-          }
-          // Middle row
-          filterOperators(i).io.in(3) := pixelMatrix(1)(i)
-          filterOperators(i).io.in(4) := pixelMatrix(1)(i + 1)
-          if (i < p.batchSize - 1) {
-            filterOperators(i).io.in(5) := pixelMatrix(1)(i + 2)
-          } else {
-            filterOperators(i).io.in(5) := Mux(currentCol === 0.U, pixelMatrix(1)(i + 1), midRowBuffer.io.rData(0))
-          }
-          // Bottom row
-          filterOperators(i).io.in(6) := pixelMatrix(2)(i)
-          filterOperators(i).io.in(7) := pixelMatrix(2)(i + 1)
-          if (i < p.batchSize - 1) {
-            filterOperators(i).io.in(8) := pixelMatrix(2)(i + 2)
-          } else {
-            filterOperators(i).io.in(8) := Mux(currentCol === 0.U, pixelMatrix(2)(i + 1), io.in.bits.data(0))
+        // Apply filter for upper left batch
+        // If upper left batch is the right edge, apply nearest pixels for off-the-edge matrix values
+        for (b <- 0 until p.batchSize) {
+          for (r <- 0 until filterOperators(b).numKernelRows) {
+            filterOperators(b).io.in(r * filterOperators(b).numKernelCols) := pixelMatrix(r)(b)
+            filterOperators(b).io.in(r * filterOperators(b).numKernelCols + 1) := pixelMatrix(r)(b + 1)
+            if (b < p.batchSize - 1) {
+              filterOperators(b).io.in(r * filterOperators(b).numKernelCols + 2) := pixelMatrix(r)(b + 2)
+            } else {
+              filterOperators(b).io.in(r * filterOperators(b).numKernelCols + 2) := Mux(currentCol === 0.U, pixelMatrix(r)(b + 1), pixelMatrixLastColumn(r)(0))
+            }
           }
           // Output the processed pixel
-          io.out.bits.data(i) := filterOperators(i).io.out
-          io.out.valid := true.B
-          io.out.bits.row := getUpperLeftRow(currentRow, currentCol)
-          io.out.bits.col := getUpperLeftColumn(currentCol)
+          io.out.bits.data(b) := filterOperators(b).io.out
         }
+        io.out.valid := true.B
+        io.out.bits.row := getUpperLeftRow(currentRow, currentCol)
+        io.out.bits.col := getUpperLeftColumn(currentCol)
       }
-      // Switch to the cool down stage after receiving all inputs
+      // Switch to the cool down stage after receiving all batches
       when (isEndOfImage(currentRow, currentCol)) {
         stateReg := ImageProcessorState.processingCooldown
       }
     }
     // PROCESSING COOLDOWN:
     //   This state is supposed to apply the filter on the last row of the image without taking any input since all the
-    // image has already been received. Every cycle, the filter will be applied for the (currentRow-1, currentCol-1)
-    // pixel. When it outputs the last pixel of the image, it switches to the DONE state.
+    // image has already been received. Every cycle, the filter will be applied for the upper left batch. When it
+    // outputs the last pixel batch of the image, it switches to the DONE state.
     is(ImageProcessorState.processingCooldown) {
       // Update the current coordinate
       nextCoordinate(currentRow, currentCol)
-      // Read next pixels from buffers
+      // Read next batch from buffers
       bufferRead(topRowBuffer, getNextColumn(currentCol) / p.batchSize.U)
       bufferRead(midRowBuffer, getNextColumn(currentCol) / p.batchSize.U)
       // Update pixel matrix for the next cycle
       updatePixelMatrix()
-      // Apply filter for (currentRow-1,currentCol-1)
-      // If (currentRow-1,currentCol-1) is the right edge, apply nearest pixels for off-the-edge matrix values
-      for (i <- 0 until p.batchSize) {
-        // Top row
-        filterOperators(i).io.in(0) := pixelMatrix(0)(i)
-        filterOperators(i).io.in(1) := pixelMatrix(0)(i + 1)
-        if (i < p.batchSize - 1) {
-          filterOperators(i).io.in(2) := pixelMatrix(0)(i + 2)
-        } else {
-          filterOperators(i).io.in(2) := Mux(currentCol === 0.U, pixelMatrix(0)(i + 1), topRowBuffer.io.rData(0))
-        }
-        // Middle row
-        filterOperators(i).io.in(3) := pixelMatrix(1)(i)
-        filterOperators(i).io.in(4) := pixelMatrix(1)(i + 1)
-        if (i < p.batchSize - 1) {
-          filterOperators(i).io.in(5) := pixelMatrix(1)(i + 2)
-        } else {
-          filterOperators(i).io.in(5) := Mux(currentCol === 0.U, pixelMatrix(1)(i + 1), midRowBuffer.io.rData(0))
+      // Apply filter for the upper left batch
+      // If the upper left batch is the right edge, apply nearest pixels for off-the-edge matrix values
+      for (b <- 0 until p.batchSize) {
+        for (r <- 0 until filterOperators(b).numKernelRows - 1) {
+          filterOperators(b).io.in(r * filterOperators(b).numKernelCols) := pixelMatrix(r)(b)
+          filterOperators(b).io.in(r * filterOperators(b).numKernelCols + 1) := pixelMatrix(r)(b + 1)
+          if (b < p.batchSize - 1) {
+            filterOperators(b).io.in(r * filterOperators(b).numKernelCols + 2) := pixelMatrix(r)(b + 2)
+          } else {
+            filterOperators(b).io.in(r * filterOperators(b).numKernelCols + 2) := Mux(currentCol === 0.U, pixelMatrix(r)(b + 1), pixelMatrixLastColumn(r)(0))
+          }
+
         }
         // Bottom row
         when (currentRow === p.numRows.U && currentCol === 0.U) {
-          filterOperators(i).io.in(6) := pixelMatrix(2)(i)
-          filterOperators(i).io.in(7) := pixelMatrix(2)(i + 1)
-          if (i < p.batchSize - 1) {
-            filterOperators(i).io.in(8) := pixelMatrix(2)(i + 2)
+          filterOperators(b).io.in(6) := pixelMatrix(2)(b)
+          filterOperators(b).io.in(7) := pixelMatrix(2)(b + 1)
+          if (b < p.batchSize - 1) {
+            filterOperators(b).io.in(8) := pixelMatrix(2)(b + 2)
           } else {
-            filterOperators(i).io.in(8) := pixelMatrix(2)(i + 1)
+            filterOperators(b).io.in(8) := pixelMatrix(2)(b + 1)
           }
         } .otherwise {
-          filterOperators(i).io.in(6) := pixelMatrix(1)(i)
-          filterOperators(i).io.in(7) := pixelMatrix(1)(i + 1)
-          if (i < p.batchSize - 1) {
-            filterOperators(i).io.in(8) := pixelMatrix(1)(i + 2)
+          filterOperators(b).io.in(6) := pixelMatrix(1)(b)
+          filterOperators(b).io.in(7) := pixelMatrix(1)(b + 1)
+          if (b < p.batchSize - 1) {
+            filterOperators(b).io.in(8) := pixelMatrix(1)(b + 2)
           } else {
-            filterOperators(i).io.in(8) := Mux(currentCol === 0.U, pixelMatrix(1)(i + 1), midRowBuffer.io.rData(0))
+            filterOperators(b).io.in(8) := Mux(currentCol === 0.U, pixelMatrix(1)(b + 1), pixelMatrixLastColumn(1)(0))
           }
         }
         // Output the processed pixel
-        io.out.bits.data(i) := filterOperators(i).io.out
-        io.out.valid := true.B
-        io.out.bits.row := getUpperLeftRow(currentRow, currentCol)
-        io.out.bits.col := getUpperLeftColumn(currentCol)
+        io.out.bits.data(b) := filterOperators(b).io.out
       }
+      io.out.valid := true.B
+      io.out.bits.row := getUpperLeftRow(currentRow, currentCol)
+      io.out.bits.col := getUpperLeftColumn(currentCol)
       // Stop processing when all outputs are given
       when (currentCol === 0.U && currentRow === (p.numRows + 1).U) {
         stateReg := ImageProcessorState.done
