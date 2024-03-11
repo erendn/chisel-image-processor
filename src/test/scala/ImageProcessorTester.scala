@@ -32,7 +32,25 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
     val filtered = ImageProcessorModel.applyFilter(image, new SolarizeFilter())
     ImageProcessorModel.writeImage(filtered, "./src/test/temp/sample_solarize_output_model.png")
   }
+  behavior of "ImageProcessor"
+  testAllFilters(1)
+  testAllFilters(2)
+  testAllFilters(5)
 
+  def testAllFilters(parallelism: Int): Unit = {
+    it should s"apply bump filter (${parallelism}-pixel parallelism)" in {
+      doTest(FilterGenerator.bumpFilter, new BumpFilter(), parallelism, "sample")
+    }
+    it should s"apply blur filter (${parallelism}-pixel parallelism)" in {
+      doTest(FilterGenerator.blurFilter, new BlurFilter(), parallelism, "sample")
+    }
+    it should s"apply grayscale filter (${parallelism}-pixel parallelism)" in {
+      doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), parallelism, "sample")
+    }
+    it should s"apply solarize filter (${parallelism}-pixel parallelism)" in {
+      doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), parallelism, "sample")
+    }
+  }
   def assertWithTolerance(actual: Int, expected: Int): Unit = {
     val diff = (expected - actual).abs
     assert(diff < 2)
@@ -115,53 +133,16 @@ class ImageProcessorTester extends AnyFlatSpec with ChiselScalatestTester {
       }
       ImageProcessorModel.writeImage(outputPixels, p, outputFile)
       // Compare all pixels to the library's results
-       for (r <- 0 until p.numRows) {
-         for (c <- 0 until p.numCols) {
-           val index = r * p.numCols + c
-           assert(c == outputPixels(index).x)
-           assert(r == outputPixels(index).y)
-           assertWithTolerance(outputPixels(index).red(), filteredPixels(r)(c)(0))
-           assertWithTolerance(outputPixels(index).green(), filteredPixels(r)(c)(1))
-           assertWithTolerance(outputPixels(index).blue(), filteredPixels(r)(c)(2))
-         }
-       }
+      for (r <- 0 until p.numRows) {
+        for (c <- 0 until p.numCols) {
+          val index = r * p.numCols + c
+          assert(c == outputPixels(index).x)
+          assert(r == outputPixels(index).y)
+          assertWithTolerance(outputPixels(index).red(), filteredPixels(r)(c)(0))
+          assertWithTolerance(outputPixels(index).green(), filteredPixels(r)(c)(1))
+          assertWithTolerance(outputPixels(index).blue(), filteredPixels(r)(c)(2))
+        }
+      }
     }
-  }
-  behavior of "ImageProcessor"
-  it should "apply bump filter (no parallelism)" in {
-    doTest(FilterGenerator.bumpFilter, new BumpFilter(), 1, "sample")
-  }
-  it should "apply blur filter (no parallelism)" in {
-    doTest(FilterGenerator.blurFilter, new BlurFilter(), 1, "sample")
-  }
-  it should "apply grayscale filter (no parallelism)" in {
-    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), 1, "sample")
-  }
-  it should "apply solarize filter (no parallelism)" in {
-    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), 1, "sample")
-  }
-  it should "apply bump filter (2-pixel parallelism)" in {
-    doTest(FilterGenerator.bumpFilter, new BumpFilter(), 2, "sample")
-  }
-  it should "apply blur filter (2-pixel parallelism)" in {
-    doTest(FilterGenerator.blurFilter, new BlurFilter(), 2, "sample")
-  }
-  it should "apply grayscale filter (2-pixel parallelism)" in {
-    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), 2, "sample")
-  }
-  it should "apply solarize filter (2-pixel parallelism)" in {
-    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), 2, "sample")
-  }
-  it should "apply bump filter (5-pixel parallelism)" in {
-    doTest(FilterGenerator.bumpFilter, new BumpFilter(), 5, "sample")
-  }
-  it should "apply blur filter (5-pixel parallelism)" in {
-    doTest(FilterGenerator.blurFilter, new BlurFilter(), 5, "sample")
-  }
-  it should "apply grayscale filter (5-pixel parallelism)" in {
-    doTest(FilterGenerator.grayscaleFilter, new GrayscaleFilter(), 5, "sample")
-  }
-  it should "apply solarize filter (5-pixel parallelism)" in {
-    doTest(FilterGenerator.solarizeFilter, new SolarizeFilter(), 5, "sample")
   }
 }

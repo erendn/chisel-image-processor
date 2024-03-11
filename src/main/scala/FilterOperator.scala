@@ -6,7 +6,7 @@ import chisel3.util._
 object FilterGenerator {
   val bumpFilter = "bump"
   val blurFilter = "blur"
-  val grayscaleFilter = "gray"
+  val grayscaleFilter = "grayscale"
   val solarizeFilter = "solarize"
   def get(p: ImageProcessorParams, name: String): FilterOperator = {
     if (name == bumpFilter) {
