@@ -85,13 +85,12 @@ class HWBlurFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
 
 class HWGrayscaleFilter(p: ImageProcessorParams) extends FilterOperator(p, 1, 1) {
   // gray = (red * 0.21) + (green * 0.71) + (blue * 0.07)
-  val rScale = io.in(0)(0) * 21.U
-  val gScale = io.in(0)(1) * 71.U
-  val bScale = io.in(0)(2) * 7.U
-  val sum = (rScale +& gScale +& bScale) / 100.U
-  io.out(0) := sum
-  io.out(1) := sum
-  io.out(2) := sum
+  val coefficients = Seq(21.U, 71.U, 7.U)
+  val scaled = coefficients.zipWithIndex.map{ case (x, i) => x * io.in(0)(i) }
+  val sum = scaled.reduce{ _ +& _ } / 100.U
+  for (channel <- 0 until p.numChannels) {
+    io.out(channel) := sum
+  }
 }
 
 class HWSolarizeFilter(p: ImageProcessorParams) extends FilterOperator(p, 1, 1) {
