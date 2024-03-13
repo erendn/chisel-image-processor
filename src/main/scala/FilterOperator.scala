@@ -11,7 +11,7 @@ object FilterGenerator {
   def get(p: ImageProcessorParams, name: String): FilterOperator = {
     if (name == bumpFilter) {
       return new HWBumpFilter(p)
-    }else if (name == blurFilter) {
+    } else if (name == blurFilter) {
       return new HWBlurFilter(p)
     } else if (name == grayscaleFilter) {
       return new HWGrayscaleFilter(p)
