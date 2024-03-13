@@ -40,19 +40,17 @@ abstract class FilterOperator(p: ImageProcessorParams, rows: Int, cols: Int) ext
 }
 
 class HWBumpFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
-  // Sum can be 255*4 at maximum; therefore, it must be signed 11 bits
-  val sum = Wire(Vec(p.numChannels, SInt(11.W)))
-
-  // Apply the filter separately for each channel
-  for (i <- 0 until p.numChannels) {
-    // Kernel is:
-    // [ -1, -1,  0 ]
-    // [ -1,  1,  1 ]
-    // [  0,  1,  1 ]
-    sum(i) := io.in(4)(i).zext +& io.in(5)(i).zext +& io.in(7)(i).zext +& io.in(8)(i).zext -&
-              io.in(0)(i).zext -& io.in(1)(i).zext -& io.in(3)(i).zext
-    // Clamp negative to 0, overflow to 255
-    io.out(i) := Mux(sum(i)(10), 0.U, Mux(sum(i)(9, 8).orR, 255.U, sum(i)(7, 0)))
+  // Kernel is:
+  // [ -1, -1,  0 ]
+  // [ -1,  1,  1 ]
+  // [  0,  1,  1 ]
+  val kernel = Seq(-1.S, -1.S,  0.S,
+                   -1.S,  1.S,  1.S,
+                    0.S,  1.S,  1.S)
+  for (channel <- 0 until p.numChannels) {
+    val scaled = kernel.zipWithIndex.map{ case (x, i) => x * io.in(i)(channel) }
+    val sum = scaled.reduce{ _ +& _ }
+    io.out(channel) := Mux(sum(10), 0.U, Mux(sum(9, 8).orR, 255.U, sum(7, 0)))
   }
 }
 
