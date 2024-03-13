@@ -57,29 +57,18 @@ class HWBumpFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
 }
 
 class HWBlurFilter(p: ImageProcessorParams) extends FilterOperator(p, 3, 3) {
-  // Scaled gradient can be 255*2 at maximum; therefore, it must be 9 bits
-  val gScale = Wire(Vec(numPixels, Vec(p.numChannels, UInt(9.W))))
-  // Sum gradient can be 255*4+255*2*5 at maximum; therefore, it must be 12 bits
-  val gSum = Wire(Vec(p.numChannels, UInt(12.W)))
-
-  for (i <- 0 until p.numChannels) {
-    // Kernel is:
-    // [ 1/14, 2/14, 1/14 ]
-    // [ 2/14, 2/14, 2/14 ]
-    // [ 1/14, 2/14, 1/14 ]
-    gScale(0)(i) := io.in(0)(i)
-    gScale(1)(i) := io.in(1)(i) * 2.U
-    gScale(2)(i) := io.in(2)(i)
-    gScale(3)(i) := io.in(3)(i) * 2.U
-    gScale(4)(i) := io.in(4)(i) * 2.U
-    gScale(5)(i) := io.in(5)(i) * 2.U
-    gScale(6)(i) := io.in(6)(i)
-    gScale(7)(i) := io.in(7)(i) * 2.U
-    gScale(8)(i) := io.in(8)(i)
-    gSum(i) := gScale(0)(i) +& gScale(1)(i) +& gScale(2)(i) +&
-               gScale(3)(i) +& gScale(4)(i) +& gScale(5)(i) +&
-               gScale(6)(i) +& gScale(7)(i) +& gScale(8)(i)
-    io.out(i) := (gSum(i) +& 7.U) / 14.U // Add 0.5 to round
+  // Kernel is:
+  // [ 1/14, 2/14, 1/14 ]
+  // [ 2/14, 2/14, 2/14 ]
+  // [ 1/14, 2/14, 1/14 ]
+  val kernel = Seq(1.U, 2.U, 1.U,
+                   2.U, 2.U, 2.U,
+                   1.U, 2.U, 1.U)
+  for (channel <- 0 until p.numChannels) {
+    val scaled = kernel.zipWithIndex.map{ case (x, i) => x * io.in(i)(channel) }
+    val sum = scaled.reduce{ _ +& _ }
+    val roundedSum = (sum +& 7.U) / 14.U
+    io.out(channel) := roundedSum
   }
 }
 
