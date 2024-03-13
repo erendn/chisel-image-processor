@@ -81,16 +81,7 @@ class HWGrayscaleFilter(p: ImageProcessorParams) extends FilterOperator(p, 1, 1)
 }
 
 class HWSolarizeFilter(p: ImageProcessorParams) extends FilterOperator(p, 1, 1) {
-  // Double channel can be 255*2 at maximum; therefore, it must be signed 10 bits
-  val doubleChannel = Wire(Vec(p.numChannels, SInt(10.W)))
-  // Sum can be 255 at maximum; therefore, it must be signed 9 bits
-  val sum = Wire(Vec(p.numChannels, SInt(9.W)))
-  // Absolute sum can be 255 at maximum; therefore, it must be 8 bits
-  val sumAbs = Wire(Vec(p.numChannels, UInt(8.W)))
-  for (i <- 0 until p.numChannels) {
-    doubleChannel(i) := (io.in(0)(i) * 2.U).zext
-    sum(i) := doubleChannel(i) - 255.S(10.W)
-    sumAbs(i) := sum(i).abs.asUInt
-    io.out(i) := sumAbs(i)
+  for (channel <- 0 until p.numChannels) {
+    io.out(channel) := ((io.in(0)(channel) * 2.U).zext - 255.S).abs.asUInt
   }
 }
